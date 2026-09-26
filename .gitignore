@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# electron-builder output
+dist/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Electron / builder caches (live outside the repo, listed for safety)
+*.blockmap

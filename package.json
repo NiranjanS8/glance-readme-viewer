@@ -1,0 +1,56 @@
+{
+  "name": "glance-readme-viewer",
+  "version": "0.1.0",
+  "description": "Glance — lightweight README viewer desktop app",
+  "main": "main.js",
+  "author": "NiranjanS8",
+  "license": "MIT",
+  "homepage": "https://github.com/NiranjanS8/glance-readme-viewer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiranjanS8/glance-readme-viewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NiranjanS8/glance-readme-viewer/issues"
+  },
+  "keywords": ["electron", "markdown", "readme", "viewer", "desktop"],
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --publish=never"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "highlight.js": "^11.10.0",
+    "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.glance.readme-viewer",
+    "productName": "Glance",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "style.css",
+      "package.json",
+      "node_modules/markdown-it/dist/**",
+      "vendor/highlight.min.js",
+      "node_modules/dompurify/dist/**"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": ["dmg"]
+    },
+    "linux": {
+      "target": ["AppImage"]
+    }
+  }
+}

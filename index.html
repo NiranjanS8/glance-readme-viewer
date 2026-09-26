@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:;" />
+  <title>Glance</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">glance</div>
+      <div class="sidebar-section">open files</div>
+      <ul class="file-list" id="fileList">
+        <li class="file-list-empty" id="fileListEmpty">nothing open yet</li>
+      </ul>
+      <div class="sidebar-footer">
+        <button class="btn" id="openFileBtn" type="button">Open file</button>
+        <button class="btn btn-ghost" id="toggleSidebarBtn" type="button" title="Collapse sidebar">hide</button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="btn btn-ghost sidebar-show" id="showSidebarBtn" type="button" title="Show sidebar" hidden>files</button>
+        <span class="filename" id="filename">README Viewer</span>
+        <span class="drop-hint" id="dropHint" hidden>drop to open</span>
+        <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme (Ctrl+T)">&#9681;</button>
+      </header>
+
+      <main class="reading" id="readingPane">
+        <div class="empty-state" id="emptyState">
+          <p class="empty-title">No file open</p>
+          <p class="empty-body">Drag a .md file here or use File &gt; Open (Ctrl/&#8984;+O)</p>
+          <button class="btn" id="emptyOpenBtn" type="button">Open file</button>
+        </div>
+        <article class="markdown-body" id="markdownBody" hidden></article>
+      </main>
+    </div>
+  </div>
+
+  <script src="./node_modules/markdown-it/dist/markdown-it.min.js"></script>
+  <script src="./vendor/highlight.min.js"></script>
+  <script src="./node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="./renderer.js"></script>
+</body>
+</html>
