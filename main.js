@@ -137,6 +137,15 @@ async function openFileDialog() {
   }
 }
 
+// The zoom roles only run from the native menu, and the zoomIn role's own
+// accelerator is Ctrl+Plus, so the steps live here: this keeps Ctrl+= working
+// and makes the step size explicit.
+function zoomBy(steps) {
+  if (!mainWindow) return;
+  const level = mainWindow.webContents.getZoomLevel();
+  mainWindow.webContents.setZoomLevel(level + steps);
+}
+
 function buildMenu() {
   const template = [
     {
@@ -164,6 +173,7 @@ function buildMenu() {
           label: 'Live Reload',
           type: 'checkbox',
           checked: settings.liveReload,
+          accelerator: 'CmdOrCtrl+Shift+L',
           click: (item) => setLiveReload(item.checked)
         },
         {
@@ -173,6 +183,42 @@ function buildMenu() {
             if (mainWindow) mainWindow.webContents.send('view:toggle-theme');
           }
         },
+        {
+          label: 'Toggle Sidebar',
+          accelerator: 'CmdOrCtrl+B',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send('view:toggle-sidebar');
+          }
+        },
+        {
+          label: 'Switch to File',
+          submenu: Array.from({ length: 9 }, (_, i) => ({
+            label: String(i + 1),
+            accelerator: `CmdOrCtrl+${i + 1}`,
+            click: () => {
+              if (mainWindow) mainWindow.webContents.send('view:select-file', i + 1);
+            }
+          }))
+        },
+        { type: 'separator' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          click: () => zoomBy(0.5)
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: () => zoomBy(-0.5)
+        },
+        {
+          label: 'Actual Size',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.setZoomLevel(0);
+          }
+        },
+        { role: 'togglefullscreen' },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' }

@@ -174,6 +174,11 @@
     });
   }
 
+  async function openEntry(entry) {
+    const opened = await window.api.readFile(entry.filePath);
+    if (opened) showFile(opened);
+  }
+
   function renderSidebar() {
     fileList.querySelectorAll('li[data-path]').forEach((li) => li.remove());
     if (sessionFiles.length === 0) {
@@ -193,12 +198,15 @@
       name.textContent = entry.name;
       name.title = entry.filePath;
       li.append(dot, name);
-      li.addEventListener('click', async () => {
-        const opened = await window.api.readFile(entry.filePath);
-        if (opened) showFile(opened);
-      });
+      li.addEventListener('click', () => openEntry(entry));
       fileList.appendChild(li);
     });
+  }
+
+  // Ctrl/Cmd+1-9 counts down the sidebar list, so 1 is the newest entry.
+  function selectFileAt(position) {
+    const entry = sessionFiles[position - 1];
+    if (entry) openEntry(entry);
   }
 
   function showFile({ filePath, content }) {
@@ -262,15 +270,17 @@
     if (data && data.filePath === activePath) setStaleNotice(true);
   });
   window.api.onToggleTheme(() => toggleTheme());
+  window.api.onToggleSidebar(() => toggleSidebar());
+  window.api.onSelectFile((position) => selectFileAt(position));
 
-  toggleSidebarBtn.addEventListener('click', () => {
-    sidebar.hidden = true;
-    showSidebarBtn.hidden = false;
-  });
-  showSidebarBtn.addEventListener('click', () => {
-    sidebar.hidden = false;
-    showSidebarBtn.hidden = true;
-  });
+  function toggleSidebar() {
+    const visible = sidebar.hidden;
+    sidebar.hidden = !visible;
+    showSidebarBtn.hidden = visible;
+  }
+
+  toggleSidebarBtn.addEventListener('click', () => toggleSidebar());
+  showSidebarBtn.addEventListener('click', () => toggleSidebar());
 
   // Drag-and-drop: accept a single .md-ish file anywhere on the window.
   let dragDepth = 0;

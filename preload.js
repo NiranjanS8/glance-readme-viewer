@@ -41,6 +41,21 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('view:toggle-theme', listener);
   },
 
+  // Fired when View > Toggle Sidebar (or CmdOrCtrl+B) is used.
+  onToggleSidebar: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('view:toggle-sidebar', listener);
+    return () => ipcRenderer.removeListener('view:toggle-sidebar', listener);
+  },
+
+  // Fired when View > Switch to File (or CmdOrCtrl+1-9) is used; position is
+  // 1-based into the sidebar list.
+  onSelectFile: (callback) => {
+    const listener = (_event, position) => callback(position);
+    ipcRenderer.on('view:select-file', listener);
+    return () => ipcRenderer.removeListener('view:select-file', listener);
+  },
+
   // Open a URL in the user's default browser.
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
 
