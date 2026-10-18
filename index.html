@@ -12,14 +12,16 @@
 <body>
   <div class="app" id="app">
     <aside class="sidebar" id="sidebar">
-      <div class="brand">glance</div>
+      <div class="brand">
+        <span>glance</span>
+        <button class="icon-btn sidebar-toggle" id="toggleSidebarBtn" type="button" title="Collapse sidebar (Ctrl+B)">&#9703;</button>
+      </div>
       <div class="sidebar-section">open files</div>
       <ul class="file-list" id="fileList">
         <li class="file-list-empty" id="fileListEmpty">nothing open yet</li>
       </ul>
       <div class="sidebar-footer">
         <button class="btn" id="openFileBtn" type="button">Open file</button>
-        <button class="btn btn-ghost" id="toggleSidebarBtn" type="button" title="Collapse sidebar">hide</button>
       </div>
     </aside>
 
@@ -28,7 +30,7 @@
         <button class="btn btn-ghost sidebar-show" id="showSidebarBtn" type="button" title="Show sidebar" hidden>files</button>
         <span class="filename" id="filename">README Viewer</span>
         <span class="drop-hint" id="dropHint" hidden>drop to open</span>
-        <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme (Ctrl+T)">&#9681;</button>
+        <button class="icon-btn theme-toggle" id="themeToggle" type="button" title="Toggle theme (Ctrl+T)">&#9681;</button>
       </header>
 
       <main class="reading" id="readingPane">
