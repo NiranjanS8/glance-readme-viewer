@@ -48,8 +48,9 @@ your own certificate and remove that flag.
 ├── preload.js    # contextBridge: the only Node/Electron access the renderer gets
 ├── renderer.js   # Markdown parsing, sanitizing, rendering, UI logic
 ├── index.html    # App shell
+├── theme-init.js # Applies the stored/OS theme before first paint (no flash)
 ├── style.css     # Design tokens, themes, GitHub-style markdown styling
-├── vendor/       # highlight.js browser bundle (npm ships no UMD build; see note below)
+├── vendor/       # highlight.js browser bundle + self-hosted webfonts (see notes below)
 ├── assets/       # App icon
 └── SAMPLE.md     # Demo file exercising the render pipeline
 ```
@@ -80,7 +81,10 @@ your own certificate and remove that flag.
 
 Note: `vendor/highlight.min.js` is the official highlight.js browser bundle
 (v11.10.0, via cdnjs), vendored because the npm package ships only ESM/CJS
-builds. Everything else loads from `node_modules`.
+builds. `vendor/fonts.css` and `vendor/fonts/` hold the Latin and Latin
+Extended subsets of Source Serif 4 and JetBrains Mono (SIL Open Font License),
+vendored because the app's CSP allows no remote resources. Everything else
+loads from `node_modules`.
 
 ## Contributing
 

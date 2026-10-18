@@ -5,6 +5,9 @@ node_modules/
 dist/
 out/
 
+# Local agent context (personal scratchpad, never published)
+PROJECT_CONTEXT.md
+
 # Logs
 *.log
 npm-debug.log*

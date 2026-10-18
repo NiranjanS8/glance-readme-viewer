@@ -1,6 +1,6 @@
 // Preload bridge: the ONLY Node/Electron access the renderer gets.
 // Renderer never touches fs, dialog, or shell directly.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Opens the native file dialog via main; resolves to { filePath, content } or null.
@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('api', {
 
   // Reads a known path (used for drag-and-drop where renderer only has a path string).
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
+
+  // Real filesystem path behind a dropped File. The non-standard File.path
+  // was removed in Electron 32, so dropped files carry no path otherwise.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // Fired when main opened a file via menu/shortcut.
   onFileOpened: (callback) => {

@@ -1,6 +1,6 @@
 {
   "name": "glance-readme-viewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Glance — lightweight README viewer desktop app",
   "main": "main.js",
   "author": "NiranjanS8",
@@ -34,11 +34,14 @@
       "main.js",
       "preload.js",
       "renderer.js",
+      "theme-init.js",
       "index.html",
       "style.css",
       "package.json",
       "node_modules/markdown-it/dist/**",
       "vendor/highlight.min.js",
+      "vendor/fonts.css",
+      "vendor/fonts/**/*",
       "node_modules/dompurify/dist/**"
     ],
     "win": {

@@ -110,16 +110,6 @@
 
   // ---------- Theme ----------
 
-  function getInitialTheme() {
-    try {
-      const stored = localStorage.getItem(THEME_KEY);
-      if (stored === 'light' || stored === 'dark') return stored;
-    } catch {
-      // storage unavailable; fall through to OS preference
-    }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-
   function applyTheme(theme) {
     html.setAttribute('data-theme', theme);
     try {
@@ -134,7 +124,9 @@
     applyTheme(current === 'dark' ? 'light' : 'dark');
   }
 
-  applyTheme(getInitialTheme());
+  // theme-init.js resolved stored-or-OS before first paint; persist that
+  // resolved value so the next launch short-circuits on localStorage.
+  applyTheme(html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
 
   // ---------- Rendering ----------
 
@@ -279,8 +271,7 @@
     document.body.classList.remove('dragging');
     const files = e.dataTransfer && e.dataTransfer.files;
     if (!files || files.length === 0) return;
-    // Electron exposes the absolute path on File objects.
-    const filePath = files[0].path;
+    const filePath = window.api.getPathForFile(files[0]);
     if (!filePath || !hasAllowedExt(filePath)) return;
     const opened = await window.api.readFile(filePath);
     if (opened) showFile(opened);
