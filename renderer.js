@@ -1,9 +1,11 @@
-/* global markdownit, hljs, DOMPurify */
+/* global markdownit, markdownItAnchor, hljs, DOMPurify */
 (function () {
   'use strict';
 
   const THEME_KEY = 'glance-theme';
   const ALLOWED_EXTS = ['.md', '.markdown', '.mdown', '.txt'];
+  const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
+  const TOC_LEVELS = 'h1, h2, h3, h4'; // the outline stops at H4
 
   const html = document.documentElement;
   const filenameEl = document.getElementById('filename');
@@ -45,6 +47,24 @@
         return '';
       }
     }
+  });
+
+  // GitHub-style heading anchors, so the "#installation" links a README was
+  // written with resolve here too. DOMPurify drops an id that shadows a
+  // document property (id="title", id="links", id="scripts", ...), so every
+  // heading also carries its slug in a data attribute, restored after
+  // sanitizing.
+  function headingSlug(text) {
+    return String(text)
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N} _-]/gu, '')
+      .replace(/ /g, '-');
+  }
+
+  md.use(markdownItAnchor, {
+    slugify: headingSlug,
+    callback: (token, { slug }) => token.attrSet('data-anchor', slug)
   });
 
   // GitHub-style task lists without an extra dependency:
@@ -131,6 +151,18 @@
 
   // ---------- Rendering ----------
 
+  // "#installation" links resolve inside the rendered document. The ids are
+  // the plugin's slugs, including the ones the sanitizer had to drop.
+  function anchorTarget(id) {
+    let decoded = id;
+    try {
+      decoded = decodeURIComponent(id);
+    } catch {
+      // a malformed escape is not worth failing a click over
+    }
+    return markdownBody.querySelector(`[id="${CSS.escape(decoded)}"]`);
+  }
+
   function renderMarkdown(source) {
     const raw = md.render(normalizeMarkdown(source));
     const clean = DOMPurify.sanitize(raw, {
@@ -139,6 +171,15 @@
       ADD_ATTR: ['target', 'rel']
     });
     markdownBody.innerHTML = clean;
+
+    // Heading anchors: the sanitizer keeps the id unless it shadows a document
+    // property, in which case the slug kept aside at parse time fills it back in.
+    markdownBody.querySelectorAll(HEADING_SELECTOR).forEach((heading) => {
+      const slug = heading.dataset.anchor;
+      if (!slug) return;
+      if (!heading.id) heading.id = slug;
+      delete heading.dataset.anchor;
+    });
 
     // Code blocks: ensure hljs class for our token styling.
     markdownBody.querySelectorAll('pre code').forEach((block) => {
@@ -154,6 +195,14 @@
         anchor.addEventListener('click', (event) => {
           event.preventDefault();
           window.api.openExternal(href);
+        });
+      } else if (href.startsWith('#')) {
+        // In-document anchors jump inside the reading pane; they must never
+        // navigate the window.
+        anchor.addEventListener('click', (event) => {
+          event.preventDefault();
+          const target = anchorTarget(href.slice(1));
+          if (target) scrollToAnchor(target);
         });
       } else if (/^(javascript:|data:|vbscript:)/i.test(href)) {
         anchor.removeAttribute('href');
@@ -226,6 +275,7 @@
     document.title = `${name} — Glance`;
     renderSidebar();
     renderMarkdown(content);
+    buildToc();
     emptyState.hidden = true;
     markdownBody.hidden = false;
     setStaleNotice(false);
@@ -238,6 +288,7 @@
     if (filePath !== activePath) return;
     const previousTop = readingPane.scrollTop;
     renderMarkdown(content);
+    buildToc({ keepActive: true });
     setStaleNotice(false);
     // Keep the reading position; clamp it when the document got shorter.
     const maxTop = Math.max(0, readingPane.scrollHeight - readingPane.clientHeight);
@@ -252,6 +303,159 @@
   async function handleOpenRequest() {
     const opened = await window.api.openFileDialog();
     if (opened) showFile(opened);
+  }
+
+  // ---------- Table of contents ----------
+
+  const TOC_MIN_HEADINGS = 3;
+  // A heading counts as "at the top" once it reaches the top tenth of the pane,
+  // and a jump lands a heading just inside that band, so clicking an entry
+  // highlights the entry it scrolled to.
+  const TOC_SPY_BAND = 0.1;
+  const TOC_LANDING = 48;
+
+  const tocPanel = document.getElementById('toc');
+  const tocList = document.getElementById('tocList');
+
+  let tocEnabled = true; // View > Table of Contents
+  let tocHeadings = []; // heading elements, in document order
+  let tocEntries = new Map(); // heading -> its link
+  let tocActive = null;
+  let tocObserver = null;
+  let tocEndObserver = null; // watches the last block: are we at the bottom?
+  let tocEndBlock = null;
+
+  function tocVisible() {
+    return tocEnabled && tocHeadings.length >= TOC_MIN_HEADINGS;
+  }
+
+  function setTocActive(heading) {
+    if (!heading || heading === tocActive) return;
+    const previous = tocEntries.get(tocActive);
+    if (previous) previous.removeAttribute('aria-current');
+    tocActive = heading;
+    const entry = tocEntries.get(heading);
+    entry.setAttribute('aria-current', 'location');
+    entry.scrollIntoView({ block: 'nearest' });
+  }
+
+  function scrollToAnchor(anchor) {
+    const paneTop = readingPane.getBoundingClientRect().top;
+    const landing = Math.min(TOC_LANDING, readingPane.clientHeight * TOC_SPY_BAND);
+    const top = readingPane.scrollTop + anchor.getBoundingClientRect().top - paneTop - landing;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    readingPane.scrollTo({ top, behavior: reduceMotion ? 'instant' : 'smooth' });
+  }
+
+  // The highlight is the last heading whose top edge has reached the spy band.
+  // Intersection events are the only trigger, and every one of them re-reads
+  // positions, so the highlight stays right however the pane got scrolled.
+  // Two cases the band alone gets wrong: a document that fits the pane (the
+  // reader is at the top, whatever sits in the band), and the end of a document
+  // whose last section is too short to lift its heading into the band.
+  function syncTocActive() {
+    const pane = readingPane.getBoundingClientRect();
+    const fits = readingPane.scrollHeight <= readingPane.clientHeight + 1;
+    const atEnd =
+      !fits &&
+      tocEndBlock !== null &&
+      tocEndBlock.getBoundingClientRect().bottom <= pane.bottom + 1;
+    const band = pane.top + readingPane.clientHeight * TOC_SPY_BAND;
+    let active = tocHeadings[0];
+    if (!fits) {
+      for (const heading of tocHeadings) {
+        if (heading.getBoundingClientRect().top > band) break;
+        active = heading;
+      }
+    }
+    if (atEnd) active = tocHeadings[tocHeadings.length - 1];
+    if (active) setTocActive(active);
+  }
+
+  // Both observers swallow the callback reporting the state they were created
+  // in, so a fresh build or a live reload keeps the highlight it was handed.
+  function afterFirstCross(handler) {
+    let first = true;
+    return () => {
+      if (first) {
+        first = false;
+        return;
+      }
+      handler();
+    };
+  }
+
+  function stopTocSpy() {
+    if (tocObserver) {
+      tocObserver.disconnect();
+      tocObserver = null;
+    }
+    if (tocEndObserver) {
+      tocEndObserver.disconnect();
+      tocEndObserver = null;
+    }
+  }
+
+  function startTocSpy() {
+    stopTocSpy();
+    if (!tocVisible()) return;
+    tocObserver = new IntersectionObserver(afterFirstCross(syncTocActive), {
+      root: readingPane,
+      rootMargin: `0px 0px -${Math.round((1 - TOC_SPY_BAND) * 100)}% 0px`
+    });
+    tocHeadings.forEach((heading) => tocObserver.observe(heading));
+    // The band cannot see the end when the last section is short, so the last
+    // block is its own trigger: it is fully visible only at the bottom.
+    if (tocEndBlock) {
+      tocEndObserver = new IntersectionObserver(afterFirstCross(syncTocActive), {
+        root: readingPane,
+        threshold: 1
+      });
+      tocEndObserver.observe(tocEndBlock);
+    }
+  }
+
+  function syncTocVisibility() {
+    tocPanel.hidden = !tocVisible();
+    startTocSpy();
+  }
+
+  // Rebuilt on every render, live reloads included; keepActive re-highlights
+  // the same heading when the edit kept it.
+  function buildToc({ keepActive = false } = {}) {
+    const activeSlug = keepActive && tocActive ? tocActive.id : null;
+    tocActive = null;
+    tocEntries = new Map();
+    tocList.textContent = '';
+    tocHeadings = Array.from(markdownBody.querySelectorAll(TOC_LEVELS)).filter(
+      (heading) => heading.id
+    );
+    tocEndBlock = markdownBody.lastElementChild;
+    syncTocVisibility();
+    for (const heading of tocHeadings) {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      link.className = `toc-link toc-level-${heading.tagName[1]}`;
+      link.href = `#${heading.id}`;
+      link.textContent = heading.textContent;
+      link.title = heading.textContent;
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        setTocActive(heading);
+        scrollToAnchor(heading);
+      });
+      item.appendChild(link);
+      tocList.appendChild(item);
+      tocEntries.set(heading, link);
+    }
+    const restored = activeSlug
+      ? tocHeadings.find((heading) => heading.id === activeSlug)
+      : null;
+    // A live reload keeps the heading the reader was on; if the edit renamed it
+    // away, follow the pane instead of dropping back to the first entry.
+    if (restored) setTocActive(restored);
+    else if (keepActive) syncTocActive();
+    else setTocActive(tocHeadings[0]);
   }
 
   // ---------- Events ----------
@@ -272,6 +476,20 @@
   window.api.onToggleTheme(() => toggleTheme());
   window.api.onToggleSidebar(() => toggleSidebar());
   window.api.onSelectFile((position) => selectFileAt(position));
+  window.api.onTocEnabledChanged((enabled) => {
+    tocEnabled = enabled !== false;
+    syncTocVisibility();
+    // Switching it back on should reflect where the reader is now.
+    if (tocVisible()) syncTocActive();
+  });
+
+  // The rail's on/off state lives in main so the View menu checkbox and the
+  // rail agree from launch.
+  window.api.getTocEnabled().then((enabled) => {
+    tocEnabled = enabled !== false;
+    syncTocVisibility();
+    if (tocVisible()) syncTocActive();
+  });
 
   function toggleSidebar() {
     const visible = sidebar.hidden;

@@ -7,7 +7,7 @@ const ALLOWED_EXTS = new Set(['.md', '.markdown', '.mdown', '.txt']);
 
 let mainWindow = null;
 let activeFilePath = null;
-let settings = { liveReload: true };
+let settings = { liveReload: true, tableOfContents: true };
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -73,7 +73,10 @@ async function loadSettings() {
   } catch {
     // first launch, or a settings file we cannot use
   }
-  settings = { liveReload: stored.liveReload !== false };
+  settings = {
+    liveReload: stored.liveReload !== false,
+    tableOfContents: stored.tableOfContents !== false
+  };
 }
 
 async function saveSettings() {
@@ -108,6 +111,14 @@ function setLiveReload(enabled) {
   const item = Menu.getApplicationMenu()?.getMenuItemById('liveReload');
   if (item) item.checked = enabled;
   watchActiveFile();
+}
+
+function setTableOfContents(enabled) {
+  settings.tableOfContents = enabled;
+  saveSettings();
+  const item = Menu.getApplicationMenu()?.getMenuItemById('tableOfContents');
+  if (item) item.checked = enabled;
+  if (mainWindow) mainWindow.webContents.send('toc:enabled-changed', enabled);
 }
 
 async function openFileDialog() {
@@ -175,6 +186,14 @@ function buildMenu() {
           checked: settings.liveReload,
           accelerator: 'CmdOrCtrl+Shift+L',
           click: (item) => setLiveReload(item.checked)
+        },
+        {
+          id: 'tableOfContents',
+          label: 'Table of Contents',
+          type: 'checkbox',
+          checked: settings.tableOfContents,
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: (item) => setTableOfContents(item.checked)
         },
         {
           label: 'Toggle Theme',
@@ -264,6 +283,9 @@ app.on('before-quit', () => {
 
 // --- IPC: renderer asks main to open a dialog + read the file ---
 ipcMain.handle('dialog:openFile', () => openFileDialog());
+
+// --- IPC: the table of contents preference, read once on renderer startup ---
+ipcMain.handle('toc:get-enabled', () => settings.tableOfContents);
 
 // --- IPC: renderer has a path (e.g. from drag-and-drop) and needs contents ---
 ipcMain.handle('file:read', async (_event, filePath) => {

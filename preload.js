@@ -56,6 +56,17 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('view:select-file', listener);
   },
 
+  // Table of contents preference, owned by main so the View menu checkbox and
+  // the panel agree between launches.
+  getTocEnabled: () => ipcRenderer.invoke('toc:get-enabled'),
+
+  // Fired when View > Table of Contents (or CmdOrCtrl+Shift+O) is used.
+  onTocEnabledChanged: (callback) => {
+    const listener = (_event, enabled) => callback(enabled);
+    ipcRenderer.on('toc:enabled-changed', listener);
+    return () => ipcRenderer.removeListener('toc:enabled-changed', listener);
+  },
+
   // Open a URL in the user's default browser.
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
 

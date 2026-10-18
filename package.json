@@ -28,7 +28,8 @@
     "chokidar": "^4.0.3",
     "dompurify": "^3.2.4",
     "highlight.js": "^11.10.0",
-    "markdown-it": "^14.1.0"
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^10.0.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -47,6 +48,7 @@
       "style.css",
       "package.json",
       "node_modules/markdown-it/dist/**",
+      "node_modules/markdown-it-anchor/dist/**",
       "vendor/highlight.min.js",
       "vendor/fonts.css",
       "vendor/fonts/**/*",
