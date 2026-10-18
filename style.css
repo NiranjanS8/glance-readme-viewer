@@ -69,6 +69,10 @@ body {
   padding: 16px 0 12px;
 }
 
+/* An author `display` beats the browser's [hidden] rule, so hiding the
+   sidebar needs this spelled out. */
+.sidebar[hidden] { display: none; }
+
 .brand {
   font-size: 15px;
   padding: 0 16px 12px;
