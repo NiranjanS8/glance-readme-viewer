@@ -246,6 +246,18 @@ body.dragging .reading {
   margin: 0 0 20px;
 }
 
+/* Live reload notice: hairline and quiet, aligned with the reading column. */
+.stale-notice {
+  max-width: 720px;
+  margin: 0 auto 24px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.stale-notice[hidden] { display: none; }
+
 /* ---------- Rendered markdown: serif prose, mono code ---------- */
 
 .markdown-body {

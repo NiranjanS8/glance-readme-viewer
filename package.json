@@ -13,12 +13,19 @@
   "bugs": {
     "url": "https://github.com/NiranjanS8/glance-readme-viewer/issues"
   },
-  "keywords": ["electron", "markdown", "readme", "viewer", "desktop"],
+  "keywords": [
+    "electron",
+    "markdown",
+    "readme",
+    "viewer",
+    "desktop"
+  ],
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --publish=never"
   },
   "dependencies": {
+    "chokidar": "^4.0.3",
     "dompurify": "^3.2.4",
     "highlight.js": "^11.10.0",
     "markdown-it": "^14.1.0"
@@ -34,6 +41,7 @@
       "main.js",
       "preload.js",
       "renderer.js",
+      "watcher.js",
       "theme-init.js",
       "index.html",
       "style.css",
@@ -42,18 +50,26 @@
       "vendor/highlight.min.js",
       "vendor/fonts.css",
       "vendor/fonts/**/*",
-      "node_modules/dompurify/dist/**"
+      "node_modules/dompurify/dist/**",
+      "node_modules/chokidar/**",
+      "node_modules/readdirp/**"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.png",
       "signAndEditExecutable": false
     },
     "mac": {
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }

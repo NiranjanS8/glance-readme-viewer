@@ -19,6 +19,7 @@ jobs:
       - run: node --check main.js
       - run: node --check preload.js
       - run: node --check renderer.js
+      - run: node --check watcher.js
       # Runs the Electron binary as plain Node: verifies the install
       # without needing a display or the Linux SUID sandbox.
       - run: ELECTRON_RUN_AS_NODE=1 npx electron -e "console.log('electron ' + process.versions.electron)"

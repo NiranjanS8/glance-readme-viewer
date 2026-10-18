@@ -19,6 +19,7 @@
   const showSidebarBtn = document.getElementById('showSidebarBtn');
   const readingPane = document.getElementById('readingPane');
   const dropHint = document.getElementById('dropHint');
+  const staleNotice = document.getElementById('staleNotice');
 
   const sessionFiles = []; // [{ filePath, name }]
   let activePath = null;
@@ -219,7 +220,25 @@
     renderMarkdown(content);
     emptyState.hidden = true;
     markdownBody.hidden = false;
+    setStaleNotice(false);
     readingPane.scrollTop = 0;
+  }
+
+  // Live reload: main pushes fresh contents when the open file changes on
+  // disk. Re-rendering is safe because renderMarkdown sanitizes every time.
+  function applyLiveUpdate({ filePath, content }) {
+    if (filePath !== activePath) return;
+    const previousTop = readingPane.scrollTop;
+    renderMarkdown(content);
+    setStaleNotice(false);
+    // Keep the reading position; clamp it when the document got shorter.
+    const maxTop = Math.max(0, readingPane.scrollHeight - readingPane.clientHeight);
+    readingPane.scrollTop = Math.min(previousTop, maxTop);
+  }
+
+  // A deleted file keeps its last render on screen, with the notice above it.
+  function setStaleNotice(visible) {
+    staleNotice.hidden = !visible;
   }
 
   async function handleOpenRequest() {
@@ -235,6 +254,12 @@
 
   window.api.onFileOpened((data) => {
     if (data) showFile(data);
+  });
+  window.api.onFileChanged((data) => {
+    if (data) applyLiveUpdate(data);
+  });
+  window.api.onFileMissing((data) => {
+    if (data && data.filePath === activePath) setStaleNotice(true);
   });
   window.api.onToggleTheme(() => toggleTheme());
 

@@ -1,10 +1,13 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const { createFileWatcher } = require('./watcher');
 
 const ALLOWED_EXTS = new Set(['.md', '.markdown', '.mdown', '.txt']);
 
 let mainWindow = null;
+let activeFilePath = null;
+let settings = { liveReload: true };
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -24,6 +27,7 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
   mainWindow.on('closed', () => {
+    fileWatcher.stop();
     mainWindow = null;
   });
 
@@ -42,6 +46,70 @@ function createWindow() {
   });
 }
 
+// Live reload: only the file the window is showing is watched, and only in
+// the main process — the renderer receives fresh contents (or a missing-file
+// notice) over IPC.
+const fileWatcher = createFileWatcher({
+  onChange: ({ filePath, content }) => {
+    if (!mainWindow || filePath !== activeFilePath) return;
+    mainWindow.webContents.send('file:changed', { filePath, content });
+  },
+  onMissing: ({ filePath }) => {
+    if (!mainWindow || filePath !== activeFilePath) return;
+    mainWindow.webContents.send('file:missing', { filePath });
+  }
+});
+
+// --- Live reload preference, kept in userData/settings.json ---
+
+function settingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+async function loadSettings() {
+  let stored = {};
+  try {
+    stored = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
+  } catch {
+    // first launch, or a settings file we cannot use
+  }
+  settings = { liveReload: stored.liveReload !== false };
+}
+
+async function saveSettings() {
+  try {
+    await fs.mkdir(path.dirname(settingsPath()), { recursive: true });
+    await fs.writeFile(settingsPath(), JSON.stringify(settings, null, 2) + '\n');
+  } catch {
+    // preferences are best-effort; the app works without them
+  }
+}
+
+// Off means no watcher runs at all, for this file and the next one opened.
+function watchActiveFile() {
+  if (settings.liveReload) {
+    fileWatcher.watch(activeFilePath);
+  } else {
+    fileWatcher.stop();
+  }
+}
+
+// Every open path (menu, shortcut, dialog, drag-and-drop, sidebar) ends up
+// here, so the watcher always follows what the window is showing.
+function setActiveFile(filePath) {
+  activeFilePath = filePath;
+  if (mainWindow) mainWindow.setTitle(`${path.basename(filePath)} — Glance`);
+  watchActiveFile();
+}
+
+function setLiveReload(enabled) {
+  settings.liveReload = enabled;
+  saveSettings();
+  const item = Menu.getApplicationMenu()?.getMenuItemById('liveReload');
+  if (item) item.checked = enabled;
+  watchActiveFile();
+}
+
 async function openFileDialog() {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -57,6 +125,7 @@ async function openFileDialog() {
   const filePath = result.filePaths[0];
   try {
     const content = await fs.readFile(filePath, 'utf8');
+    setActiveFile(filePath);
     return { filePath, content };
   } catch (err) {
     await dialog.showMessageBox(mainWindow, {
@@ -80,7 +149,6 @@ function buildMenu() {
             const opened = await openFileDialog();
             if (opened && mainWindow) {
               mainWindow.webContents.send('file:opened', opened);
-              mainWindow.setTitle(`${path.basename(opened.filePath)} — Glance`);
             }
           }
         },
@@ -91,6 +159,13 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
+        {
+          id: 'liveReload',
+          label: 'Live Reload',
+          type: 'checkbox',
+          checked: settings.liveReload,
+          click: (item) => setLiveReload(item.checked)
+        },
         {
           label: 'Toggle Theme',
           accelerator: 'CmdOrCtrl+T',
@@ -123,7 +198,8 @@ function buildMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadSettings();
   buildMenu();
   createWindow();
 
@@ -136,14 +212,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// --- IPC: renderer asks main to open a dialog + read the file ---
-ipcMain.handle('dialog:openFile', async () => {
-  const opened = await openFileDialog();
-  if (opened && mainWindow) {
-    mainWindow.setTitle(`${path.basename(opened.filePath)} — Glance`);
-  }
-  return opened;
+app.on('before-quit', () => {
+  fileWatcher.stop();
 });
+
+// --- IPC: renderer asks main to open a dialog + read the file ---
+ipcMain.handle('dialog:openFile', () => openFileDialog());
 
 // --- IPC: renderer has a path (e.g. from drag-and-drop) and needs contents ---
 ipcMain.handle('file:read', async (_event, filePath) => {
@@ -152,9 +226,7 @@ ipcMain.handle('file:read', async (_event, filePath) => {
   if (!ALLOWED_EXTS.has(ext)) return null;
   try {
     const content = await fs.readFile(filePath, 'utf8');
-    if (mainWindow) {
-      mainWindow.setTitle(`${path.basename(filePath)} — Glance`);
-    }
+    setActiveFile(filePath);
     return { filePath, content };
   } catch {
     return null;

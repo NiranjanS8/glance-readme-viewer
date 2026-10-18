@@ -20,6 +20,20 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('file:opened', listener);
   },
 
+  // Fired when the open file changed on disk, carrying its fresh contents.
+  onFileChanged: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('file:changed', listener);
+    return () => ipcRenderer.removeListener('file:changed', listener);
+  },
+
+  // Fired when the open file is deleted or renamed away.
+  onFileMissing: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('file:missing', listener);
+    return () => ipcRenderer.removeListener('file:missing', listener);
+  },
+
   // Fired when View > Toggle Theme (or CmdOrCtrl+T) is used.
   onToggleTheme: (callback) => {
     const listener = () => callback();
