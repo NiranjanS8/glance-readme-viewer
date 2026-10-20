@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net, protocol, shell } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const fs = require('fs/promises');
@@ -7,6 +7,7 @@ const { createTreeWatcher, guardPath, isInside, scanMarkdown, toPosix } = requir
 
 const ALLOWED_EXTS = new Set(['.md', '.markdown', '.mdown', '.txt']);
 const IMAGE_SCHEME = 'glance-file';
+const HELP_PATH = path.join(__dirname, 'HELP.md');
 
 // Folder search caps. The per-file limit keeps one noisy file from filling the
 // sidebar; the total limit keeps a huge folder from producing an endless list.
@@ -801,13 +802,21 @@ function buildMenu() {
         },
         { role: 'togglefullscreen' },
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'toggleDevTools' }
+        { role: 'reload' }
       ]
     },
     {
       label: 'Help',
       submenu: [
+        {
+          id: 'help',
+          label: 'Help',
+          accelerator: 'F1',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send('help:open');
+          }
+        },
+        { type: 'separator' },
         {
           label: 'About Glance',
           click: async () => {
@@ -847,6 +856,15 @@ app.on('before-quit', () => {
 
 // --- IPC: renderer asks main to open a dialog + read the file ---
 ipcMain.handle('dialog:openFile', () => openFileDialog());
+
+// --- IPC: help is read only when the Help menu item is used ---
+ipcMain.handle('help:read', async () => {
+  try {
+    return await fs.readFile(HELP_PATH, 'utf8');
+  } catch {
+    return null;
+  }
+});
 
 // --- IPC: the table of contents preference, read once on renderer startup ---
 ipcMain.handle('toc:get-enabled', () => settings.tableOfContents);
@@ -938,6 +956,14 @@ ipcMain.on('shell:openExternal', (_event, url) => {
   if (url.startsWith('https://') || url.startsWith('http://') || url.startsWith('mailto:')) {
     shell.openExternal(url);
   }
+});
+
+// Code-block copy uses the OS clipboard in main; the renderer never gets a
+// Node clipboard module.
+ipcMain.handle('clipboard:write-text', (_event, text) => {
+  if (typeof text !== 'string') return false;
+  clipboard.writeText(text);
+  return true;
 });
 
 // --- IPC: renderer reports current filename so the OS title stays correct ---

@@ -6,6 +6,18 @@ contextBridge.exposeInMainWorld('api', {
   // Opens the native file dialog via main; resolves to { document, files } or null.
   openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
 
+  // Copies raw fenced-code text through main's OS clipboard.
+  copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
+
+  // Reads the bundled help document. Only called when Help is selected.
+  readHelp: () => ipcRenderer.invoke('help:read'),
+
+  onOpenHelp: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('help:open', listener);
+    return () => ipcRenderer.removeListener('help:open', listener);
+  },
+
   // Reads a known path (used for drag-and-drop where renderer only has a path string).
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
 

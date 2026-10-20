@@ -1,4 +1,4 @@
-/* global markdownit, markdownItAnchor, hljs, DOMPurify */
+/* global markdownit, markdownItAnchor, markdownitFootnote, markdownitEmoji, hljs, DOMPurify */
 (function () {
   'use strict';
 
@@ -12,6 +12,34 @@
   const SEARCH_MIN_LENGTH = 2;
   const HIGHLIGHT_ALL = 'glance-find';
   const HIGHLIGHT_CURRENT = 'glance-find-current';
+  const KATEX_SCRIPT = './node_modules/katex/dist/katex.min.js';
+  const KATEX_STYLE = './node_modules/katex/dist/katex.min.css';
+  const TEXMATH_SCRIPT = './node_modules/markdown-it-texmath/texmath.js';
+  const MERMAID_SCRIPT = './node_modules/mermaid/dist/mermaid.min.js';
+  const MERMAID_FENCE = /^[ \t]{0,3}(?:`{3,}|~{3,})[ \t]*mermaid(?:[ \t]|$)/im;
+  const ALERT_MARKER = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]*\r?\n)?/i;
+  const KATEX_TAGS = [
+    'math', 'semantics', 'annotation', 'annotation-xml', 'mrow', 'mi', 'mn', 'mo',
+    'ms', 'mtext', 'mspace', 'mfrac', 'msup', 'msub', 'msubsup', 'mover', 'munder',
+    'munderover', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd', 'mlabeledtr', 'mstyle',
+    'mpadded', 'mphantom', 'menclose', 'mmultiscripts', 'mprescripts', 'none',
+    'mglyph', 'maction', 'merror'
+  ];
+  const KATEX_ATTRS = [
+    'style', 'xmlns', 'encoding', 'display', 'mathvariant', 'mathsize',
+    'mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel', 'stretchy',
+    'width', 'height', 'depth', 'lspace', 'rspace', 'linethickness',
+    'columnalign', 'rowalign', 'columnspan', 'rowspan', 'columnlines',
+    'rowlines', 'frame', 'framespacing', 'equalrows', 'equalcolumns', 'side',
+    'minlabelspacing', 'maxsize', 'minsize', 'movablelimits', 'accent',
+    'accentunder', 'separator', 'largeop', 'symmetric', 'stackalign',
+    'charalign', 'groupalign', 'voffset', 'aria-hidden'
+  ];
+  const MARKDOWN_SANITIZE = {
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'style'],
+    ADD_ATTR: ['target', 'rel']
+  };
 
   const html = document.documentElement;
   const filenameEl = document.getElementById('filename');
@@ -41,6 +69,12 @@
   const searchClose = document.getElementById('sidebarSearchClose');
   const searchStatus = document.getElementById('sidebarSearchStatus');
   const searchResults = document.getElementById('sidebarSearchResults');
+  const helpView = document.getElementById('helpView');
+  const helpScroll = document.getElementById('helpScroll');
+  const helpBody = document.getElementById('helpBody');
+  const helpClose = document.getElementById('helpClose');
+  const topbarEl = document.querySelector('.topbar');
+  const contentPane = document.querySelector('.pane');
 
   const sessionFiles = []; // [{ filePath, name }]
   const treeExpanded = new Set(); // folder paths the reader left open
@@ -49,6 +83,8 @@
   let activePath = null;
   let current = null; // { mode, filePath, relativePath }
   let folder = null; // { name, root, files, truncated, limit } while a folder is open
+  let helpReturnFocus = null;
+  let helpOpenToken = 0;
 
   const highlightsSupported =
     typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight === 'function';
@@ -78,9 +114,11 @@
     typographer: true,
     highlight: function (code, lang) {
       try {
+        const language = (lang || '').toLowerCase();
+        if (language === 'mermaid') return md.utils.escapeHtml(code);
         if (typeof hljs === 'undefined') return '';
-        if (lang && hljs.getLanguage(lang)) {
-          return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+        if (language && hljs.getLanguage(language)) {
+          return hljs.highlight(code, { language, ignoreIllegals: true }).value;
         }
         return hljs.highlightAuto(code).value;
       } catch {
@@ -107,6 +145,17 @@
     callback: (token, { slug }) => token.attrSet('data-anchor', slug)
   });
 
+  md.use(markdownitFootnote);
+  md.use(markdownitEmoji);
+
+  // The plugin's default back-reference is an arrow glyph. Keep the quiet
+  // footnote voice instead: a lowercase mono "back" link.
+  md.renderer.rules.footnote_anchor = function (tokens, idx, options, env, slf) {
+    let id = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
+    if (tokens[idx].meta.subId > 0) id += `:${tokens[idx].meta.subId}`;
+    return ` <a href="#fnref${id}" class="footnote-backref" aria-label="Back to reference">back</a>`;
+  };
+
   // GitHub-style task lists without an extra dependency:
   // "- [ ] todo" / "- [x] done" -> disabled checkboxes.
   md.core.ruler.after('inline', 'glance-task-lists', (state) => {
@@ -127,6 +176,37 @@
       const checkbox = new state.Token('html_inline', '', 0);
       checkbox.content = `<input type="checkbox" disabled${checked ? ' checked' : ''} tabindex="-1">`;
       inline.children.unshift(checkbox);
+    }
+    return false;
+  });
+
+  // GitHub alerts are ordinary blockquotes whose first paragraph opens with
+  // [!NOTE] and friends. Convert the marker into a class and a quiet label
+  // without changing blockquotes that do not use it.
+  md.core.ruler.after('inline', 'glance-alerts', (state) => {
+    const tokens = state.tokens;
+    for (let i = 0; i < tokens.length; i++) {
+      const open = tokens[i];
+      if (open.type !== 'blockquote_open') continue;
+      const paragraphOpen = tokens[i + 1];
+      const inline = tokens[i + 2];
+      if (!paragraphOpen || paragraphOpen.type !== 'paragraph_open') continue;
+      if (!inline || inline.type !== 'inline') continue;
+      const first = inline.children && inline.children[0];
+      if (!first || first.type !== 'text') continue;
+      const match = ALERT_MARKER.exec(first.content);
+      if (!match) continue;
+
+      const kind = match[1].toLowerCase();
+      open.attrSet('class', `alert alert-${kind}`);
+      open.attrSet('data-alert-label', kind);
+
+      first.content = first.content.slice(match[0].length);
+      inline.content = inline.content.replace(ALERT_MARKER, '');
+      if (!first.content.trim()) inline.children.shift();
+      if (inline.children[0] && inline.children[0].type === 'softbreak') {
+        inline.children.shift();
+      }
     }
     return false;
   });
@@ -163,15 +243,423 @@
     return lines.join('\n');
   }
 
+  // ---------- Lazily loaded rendering assets ----------
+
+  function loadScript(source) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = source;
+      script.async = true;
+      script.addEventListener('load', () => resolve(), { once: true });
+      script.addEventListener('error', () => reject(new Error(`Could not load ${source}`)), {
+        once: true
+      });
+      document.head.appendChild(script);
+    });
+  }
+
+  function sourceHasMath(source) {
+    // Code fences are the common place for dollar signs that are not math.
+    // Inline code still triggers a load, which is harmless and keeps the
+    // detector cheap.
+    const text = source.replace(
+      /^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^[ \t]{0,3}\1[ \t]*$/gm,
+      ''
+    );
+    if (/\$\$[\s\S]+?\$\$/.test(text)) return true;
+
+    // Match texmath's inline dollar guard: no digit immediately outside the
+    // delimiters, no backslash before the opener, and no whitespace inside.
+    // "costs $5 and $10" therefore does not look like math.
+    const inline = /\$((?:[^\s\\])|(?:\S[^\n]*?[^\s\\]))\$/g;
+    let match;
+    while ((match = inline.exec(text))) {
+      const start = match.index;
+      const end = inline.lastIndex - 1;
+      const before = start > 0 ? text.charCodeAt(start - 1) : 0;
+      const after = end + 1 < text.length ? text.charCodeAt(end + 1) : 0;
+      const validBefore = !before || (before !== 0x5c && (before < 0x30 || before > 0x39));
+      const validAfter = !after || after < 0x30 || after > 0x39;
+      if (validBefore && validAfter) return true;
+    }
+    return false;
+  }
+
+  function sourceHasMermaid(source) {
+    return MERMAID_FENCE.test(source);
+  }
+
+  // KaTeX and markdown-it-texmath are loaded together, after the first
+  // document that actually contains a dollar delimiter. The parser renders
+  // placeholders; KaTeX runs after sanitizing, against the checked source.
+  let mathAssets = null;
+
+  function mathPlaceholder(tex, display) {
+    const escaped = md.utils.escapeHtml(tex);
+    const kind = display ? 'math-block' : 'math-inline';
+    return `<span class="math-source ${kind}" data-tex="${escaped}" data-display="${display}"></span>`;
+  }
+
+  function installMathRules() {
+    for (const name of Object.keys(md.renderer.rules)) {
+      if (!name.startsWith('math_')) continue;
+      md.renderer.rules[name] = (tokens, idx) => {
+        const token = tokens[idx];
+        return mathPlaceholder(token.content, token.type !== 'math_inline');
+      };
+    }
+  }
+
+  function ensureMath() {
+    if (mathAssets) return mathAssets;
+    mathAssets = (async () => {
+      const styleLoaded = new Promise((resolve) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = KATEX_STYLE;
+        link.addEventListener('load', () => resolve(), { once: true });
+        link.addEventListener('error', () => resolve(), { once: true });
+        document.head.appendChild(link);
+      });
+
+      const previousModule = window.module;
+      window.module = { exports: {} };
+      try {
+        await Promise.all([loadScript(KATEX_SCRIPT), loadScript(TEXMATH_SCRIPT), styleLoaded]);
+        const texmath = window.module.exports;
+        if (typeof texmath !== 'function') throw new Error('Invalid texmath module');
+        // The rules are replaced below, so the engine is never called; it only
+        // stops texmath from trying to require("katex") in the browser.
+        md.use(texmath, {
+          engine: {},
+          delimiters: 'dollars',
+          katexOptions: { throwOnError: true }
+        });
+        installMathRules();
+      } finally {
+        if (previousModule === undefined) delete window.module;
+        else window.module = previousModule;
+      }
+    })().catch((error) => {
+      mathAssets = null;
+      console.warn('Math rendering is unavailable:', error);
+    });
+    return mathAssets;
+  }
+
+  // Mermaid is a single local UMD bundle. It is only fetched when a document
+  // has a mermaid fence, and never talks to a CDN.
+  let mermaidAssets = null;
+  let mermaidModule = null;
+  let mermaidWork = Promise.resolve();
+  let mermaidRenderSeq = 0;
+  const mermaidCache = new Map();
+
+  function mermaidThemeVariables() {
+    const styles = getComputedStyle(document.documentElement);
+    const token = (name) => styles.getPropertyValue(name).trim();
+    const bg = token('--bg');
+    const elevated = token('--bg-elevated');
+    const text = token('--text');
+    const border = token('--border');
+    const accent = token('--accent');
+    const codeBg = token('--code-bg');
+    return {
+      darkMode: html.getAttribute('data-theme') === 'dark',
+      background: bg,
+      primaryColor: elevated,
+      primaryTextColor: text,
+      primaryBorderColor: border,
+      secondaryColor: elevated,
+      tertiaryColor: codeBg,
+      lineColor: accent,
+      arrowheadColor: accent,
+      textColor: text,
+      mainBkg: elevated,
+      nodeBorder: border,
+      clusterBkg: elevated,
+      clusterBorder: border,
+      titleColor: text,
+      edgeLabelBackground: bg,
+      fontFamily: token('--font-mono') || 'monospace',
+      actorBkg: elevated,
+      actorBorder: border,
+      actorTextColor: text,
+      actorLineColor: border,
+      signalColor: text,
+      signalTextColor: text,
+      labelBoxBkgColor: elevated,
+      labelBoxBorderColor: border,
+      labelTextColor: text,
+      loopTextColor: text,
+      noteBkgColor: codeBg,
+      noteBorderColor: border,
+      noteTextColor: text,
+      activationBkgColor: elevated,
+      activationBorderColor: accent,
+      sequenceNumberColor: bg
+    };
+  }
+
+  function configureMermaid() {
+    if (!mermaidModule) return;
+    const themeVariables = mermaidThemeVariables();
+    mermaidModule.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      suppressErrorRendering: true,
+      theme: 'base',
+      darkMode: themeVariables.darkMode,
+      themeVariables,
+      fontFamily: themeVariables.fontFamily,
+      flowchart: { useMaxWidth: false },
+      sequence: { useMaxWidth: false },
+      class: { useMaxWidth: false },
+      state: { useMaxWidth: false },
+      er: { useMaxWidth: false },
+      gantt: { useMaxWidth: false },
+      pie: { useMaxWidth: false },
+      journey: { useMaxWidth: false },
+      gitGraph: { useMaxWidth: false },
+      mindmap: { useMaxWidth: false },
+      timeline: { useMaxWidth: false },
+      quadrantChart: { useMaxWidth: false },
+      requirement: { useMaxWidth: false },
+      c4: { useMaxWidth: false },
+      sankey: { useMaxWidth: false },
+      block: { useMaxWidth: false },
+      packet: { useMaxWidth: false },
+      architecture: { useMaxWidth: false },
+      radar: { useMaxWidth: false },
+      xyChart: { useMaxWidth: false }
+    });
+  }
+
+  function ensureMermaid() {
+    if (mermaidAssets) return mermaidAssets;
+    mermaidAssets = loadScript(MERMAID_SCRIPT)
+      .then(() => {
+        mermaidModule = window.mermaid;
+        if (!mermaidModule) throw new Error('Mermaid did not initialize');
+        configureMermaid();
+      })
+      .catch((error) => {
+        mermaidAssets = null;
+        mermaidModule = null;
+        console.warn('Diagram rendering is unavailable:', error);
+      });
+    return mermaidAssets;
+  }
+
+  function convertMermaidBlocks() {
+    markdownBody.querySelectorAll('pre > code.language-mermaid').forEach((code) => {
+      const pre = code.parentElement;
+      if (!pre || pre.closest('.mermaid-block')) return;
+      const container = document.createElement('div');
+      container.className = 'mermaid-block';
+      container.dataset.mermaidSource = code.textContent || '';
+      pre.replaceWith(container);
+    });
+  }
+
+  function renderMermaidFallback(block) {
+    const source = block.dataset.mermaidSource || '';
+    block.classList.add('mermaid-error');
+    block.replaceChildren();
+    const pre = document.createElement('pre');
+    pre.className = 'mermaid-fallback';
+    const code = document.createElement('code');
+    code.className = 'language-mermaid';
+    code.textContent = source;
+    pre.appendChild(code);
+    const notice = document.createElement('div');
+    notice.className = 'mermaid-notice';
+    notice.textContent = 'Diagram could not be rendered';
+    block.append(pre, notice);
+  }
+
+  function applyMermaidSvg(block, svg, theme) {
+    block.classList.remove('mermaid-error');
+    block.innerHTML = svg;
+    block.dataset.mermaidTheme = theme;
+  }
+
+  async function renderMermaidBlock(block, index, theme) {
+    const source = block.dataset.mermaidSource || '';
+    const key = `${theme}\u0000${index}\u0000${source}`;
+    const cached = mermaidCache.get(key);
+    if (cached) {
+      if (cached.error) renderMermaidFallback(block);
+      else applyMermaidSvg(block, cached.svg, theme);
+      return;
+    }
+
+    const id = `glance-mermaid-${++mermaidRenderSeq}`;
+    try {
+      const result = await mermaidModule.render(id, source);
+      if (!block.isConnected) return;
+      const svg = typeof result === 'string' ? result : result.svg;
+      mermaidCache.set(key, { svg });
+      applyMermaidSvg(block, svg, theme);
+    } catch {
+      if (!block.isConnected) return;
+      mermaidCache.set(key, { error: true });
+      renderMermaidFallback(block);
+    } finally {
+      const stray = document.getElementById(`d${id}`);
+      if (stray && !block.contains(stray)) stray.remove();
+      if (mermaidCache.size > 48) {
+        mermaidCache.delete(mermaidCache.keys().next().value);
+      }
+    }
+  }
+
+  async function renderMermaidBlocks({ rerender = false } = {}) {
+    if (!rerender) convertMermaidBlocks();
+    const blocks = Array.from(markdownBody.querySelectorAll('.mermaid-block'));
+    if (blocks.length === 0) return;
+    if (!mermaidModule) {
+      blocks.forEach(renderMermaidFallback);
+      return;
+    }
+
+    configureMermaid();
+    const theme = html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    for (let index = 0; index < blocks.length; index++) {
+      if (!blocks[index].isConnected) continue;
+      await renderMermaidBlock(blocks[index], index, theme);
+    }
+  }
+
+  function scheduleMermaidRender(options = {}) {
+    mermaidWork = mermaidWork
+      .then(() => renderMermaidBlocks(options))
+      .catch((error) => {
+        console.warn('Diagram rendering failed:', error);
+      });
+    return mermaidWork;
+  }
+
+  function refreshMermaidTheme() {
+    if (!mermaidModule) return;
+    if (!markdownBody.querySelector('.mermaid-block')) return;
+    void scheduleMermaidRender({ rerender: true });
+  }
+
+  // KaTeX emits presentation MathML and inline positioning styles. It is
+  // sanitized separately, with no links or embedded content allowed, so raw
+  // Markdown HTML never gains a style attribute.
+  function sanitizeMathHtml(markup) {
+    return DOMPurify.sanitize(markup, {
+      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'a'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick'],
+      ADD_TAGS: KATEX_TAGS,
+      ADD_ATTR: KATEX_ATTRS,
+      ALLOW_DATA_ATTR: false
+    });
+  }
+
+  function renderMathSources() {
+    markdownBody.querySelectorAll('.math-source').forEach((node) => {
+      const tex = node.getAttribute('data-tex') || '';
+      const display = node.getAttribute('data-display') === 'true';
+      if (!window.katex) {
+        node.textContent = tex;
+        node.classList.add('math-error');
+        return;
+      }
+      try {
+        const markup = window.katex.renderToString(tex, {
+          displayMode: display,
+          throwOnError: true,
+          output: 'htmlAndMathml',
+          trust: false,
+          // Trust violations are painted with errorColor rather than thrown.
+          // A sentinel lets us treat them as invalid and show the source.
+          errorColor: '#010203'
+        });
+        if (markup.includes('#010203')) throw new Error('Invalid math');
+        node.innerHTML = sanitizeMathHtml(markup);
+        node.classList.remove('math-error');
+        node.classList.add('math-rendered');
+      } catch {
+        node.textContent = tex;
+        node.classList.add('math-error');
+      }
+    });
+  }
+
+  function addCopyButtons() {
+    markdownBody.querySelectorAll('pre').forEach((pre) => {
+      if (pre.closest('.mermaid-block') || pre.querySelector('code.language-mermaid')) return;
+      const code = pre.querySelector('code');
+      if (!code) return;
+      if (pre.parentElement && pre.parentElement.classList.contains('code-block')) return;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'code-block';
+      pre.replaceWith(wrapper);
+      wrapper.appendChild(pre);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'code-copy';
+      button.textContent = 'copy';
+      button.setAttribute('aria-label', 'Copy code');
+      button.title = 'Copy code';
+      button.addEventListener('click', () => {
+        void copyCode(button, code);
+      });
+      wrapper.appendChild(button);
+    });
+  }
+
+  async function copyCode(button, code) {
+    const text = code.textContent || '';
+    let copied = false;
+    try {
+      if (window.api && typeof window.api.copyText === 'function') {
+        copied = await window.api.copyText(text);
+      }
+    } catch {
+      copied = false;
+    }
+    if (!copied && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+
+    button.textContent = copied ? 'copied' : 'copy failed';
+    button.setAttribute('aria-label', copied ? 'Copied' : 'Copy failed');
+    clearTimeout(button.copyResetTimer);
+    button.copyResetTimer = setTimeout(() => {
+      button.textContent = 'copy';
+      button.setAttribute('aria-label', 'Copy code');
+    }, 1500);
+  }
+
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    const style = node.getAttribute && node.getAttribute('style');
+    if (style && /url\s*\(|expression\s*\(|@import|behavior\s*:/i.test(style)) {
+      node.removeAttribute('style');
+    }
+  });
+
   // ---------- Theme ----------
 
   function applyTheme(theme) {
+    const changed = html.getAttribute('data-theme') !== theme;
     html.setAttribute('data-theme', theme);
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {
       // ignore persistence failures
     }
+    if (changed) refreshMermaidTheme();
   }
 
   function toggleTheme() {
@@ -219,14 +707,27 @@
     return IMAGE_PREFIX + encodeSegments(directory + trimmed);
   }
 
-  function renderMarkdown(source) {
-    const raw = md.render(normalizeMarkdown(source));
-    const clean = DOMPurify.sanitize(raw, {
-      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
-      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'style'],
-      ADD_ATTR: ['target', 'rel']
-    });
+  let renderGeneration = 0;
+
+  async function renderMarkdown(source) {
+    const generation = ++renderGeneration;
+    const normalized = normalizeMarkdown(source);
+    await Promise.all([
+      sourceHasMath(normalized) ? ensureMath() : null,
+      sourceHasMermaid(normalized) ? ensureMermaid() : null
+    ]);
+    if (generation !== renderGeneration) return false;
+
+    const raw = md.render(normalized);
+    const clean = DOMPurify.sanitize(raw, MARKDOWN_SANITIZE);
     markdownBody.innerHTML = clean;
+
+    // A mermaid fence nested in a blockquote or list may not match the cheap
+    // source preflight above. The rendered code block is authoritative.
+    if (!mermaidModule && markdownBody.querySelector('pre > code.language-mermaid')) {
+      await ensureMermaid();
+      if (generation !== renderGeneration) return false;
+    }
 
     // Heading anchors: the sanitizer keeps the id unless it shadows a document
     // property, in which case the slug kept aside at parse time fills it back in.
@@ -293,6 +794,102 @@
       img.setAttribute('loading', 'lazy');
       img.addEventListener('error', () => img.classList.add('img-broken'));
     });
+
+    renderMathSources();
+    addCopyButtons();
+    await scheduleMermaidRender();
+    if (generation !== renderGeneration) return false;
+    return true;
+  }
+
+  // ---------- Help ----------
+
+  // Help is a bundled Markdown file, rendered into the main pane only after the
+  // menu item is used. It never becomes part of the opened-file session.
+  function renderHelpContent(source) {
+    const raw = md.render(normalizeMarkdown(source));
+    helpBody.innerHTML = DOMPurify.sanitize(raw, MARKDOWN_SANITIZE);
+
+    helpBody.querySelectorAll(HEADING_SELECTOR).forEach((heading) => {
+      const slug = heading.dataset.anchor;
+      if (slug && !heading.id) heading.id = slug;
+      delete heading.dataset.anchor;
+    });
+    helpBody.querySelectorAll('pre code').forEach((block) => {
+      block.classList.add('hljs');
+    });
+    helpBody.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+      box.disabled = true;
+      box.setAttribute('tabindex', '-1');
+    });
+    helpBody.querySelectorAll('a[href]').forEach((anchor) => {
+      const href = anchor.getAttribute('href');
+      if (/^(https?:|mailto:)/i.test(href) || href.startsWith('//')) {
+        const target = href.startsWith('//') ? `https:${href}` : href;
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+        anchor.addEventListener('click', (event) => {
+          event.preventDefault();
+          window.api.openExternal(target);
+        });
+      } else if (href.startsWith('#')) {
+        anchor.addEventListener('click', (event) => {
+          event.preventDefault();
+          let decoded = href.slice(1);
+          try {
+            decoded = decodeURIComponent(decoded);
+          } catch {
+            // keep the raw fragment
+          }
+          const target = helpBody.querySelector(`[id="${CSS.escape(decoded)}"]`);
+          if (target) target.scrollIntoView({ block: 'start' });
+        });
+      } else {
+        anchor.removeAttribute('href');
+      }
+    });
+  }
+
+  function renderHelpError() {
+    helpBody.replaceChildren();
+    const message = document.createElement('p');
+    message.textContent = 'Help could not be loaded.';
+    helpBody.appendChild(message);
+  }
+
+  async function openHelp() {
+    if (!helpView.hidden) {
+      helpClose.focus();
+      return;
+    }
+    const token = ++helpOpenToken;
+    helpReturnFocus = document.activeElement;
+    let content = null;
+    try {
+      content = await window.api.readHelp();
+    } catch {
+      content = null;
+    }
+    if (token !== helpOpenToken) return;
+    if (typeof content === 'string' && content.trim()) renderHelpContent(content);
+    else renderHelpError();
+    topbarEl.inert = true;
+    contentPane.inert = true;
+    helpView.hidden = false;
+    helpScroll.scrollTop = 0;
+    helpClose.focus();
+  }
+
+  function closeHelp({ restoreFocus = true } = {}) {
+    helpOpenToken += 1;
+    if (helpView.hidden) return;
+    helpView.hidden = true;
+    topbarEl.inert = false;
+    contentPane.inert = false;
+    if (restoreFocus && helpReturnFocus && helpReturnFocus.isConnected) {
+      helpReturnFocus.focus();
+    }
+    helpReturnFocus = null;
   }
 
   // ---------- Notices ----------
@@ -357,7 +954,9 @@
       acceptNode(node) {
         if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
         const parent = node.parentElement;
-        if (!parent || parent.closest('.find-bar')) return NodeFilter.FILTER_REJECT;
+        if (!parent || parent.closest('.find-bar, button, .mermaid-block, svg, .katex-mathml')) {
+          return NodeFilter.FILTER_REJECT;
+        }
         return isVisible(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
       }
     });
@@ -512,7 +1111,7 @@
     saveHistoryScroll();
     historyIndex = index;
     syncHistoryMenu();
-    showDocument(opened, { scrollTop: entry.scrollTop });
+    void showDocument(opened, { scrollTop: entry.scrollTop });
   }
 
   function goBack() {
@@ -529,7 +1128,7 @@
     if (!document || !document.filePath) return;
     if (push) pushHistoryEntry(document);
     else saveHistoryScroll();
-    showDocument(document, { anchor, scrollTop });
+    await showDocument(document, { anchor, scrollTop });
   }
 
   async function openEntry(entry) {
@@ -572,8 +1171,9 @@
     sessionFiles.unshift(entry);
   }
 
-  function showDocument({ mode, filePath, relativePath, content }, { anchor = null, scrollTop = 0 } = {}) {
+  async function showDocument({ mode, filePath, relativePath, content }, { anchor = null, scrollTop = 0 } = {}) {
     if (!filePath) return;
+    closeHelp({ restoreFocus: false });
     const name = basename(filePath);
     activePath = filePath;
     current = { mode, filePath, relativePath };
@@ -587,7 +1187,8 @@
     window.api.setTitle(name);
     document.title = `${name} — Glance`;
 
-    renderMarkdown(content);
+    const rendered = await renderMarkdown(content);
+    if (!rendered) return;
     buildToc();
     emptyState.hidden = true;
     markdownBody.hidden = false;
@@ -640,8 +1241,9 @@
     document.title = heading ? `${heading} — Glance` : 'Glance';
   }
 
-  function applyFolderOpened(payload) {
+  async function applyFolderOpened(payload) {
     if (!payload) return;
+    closeHelp({ restoreFocus: false });
     resetSidebarSearch();
     folder = {
       name: payload.name,
@@ -657,7 +1259,7 @@
     if (payload.document) {
       expandAncestors(payload.document.relativePath);
       pushHistoryEntry(payload.document);
-      showDocument(payload.document);
+      await showDocument(payload.document);
       return;
     }
     showFolderWithoutDocument();
@@ -680,15 +1282,22 @@
 
   // Live reload: main pushes fresh contents when the open file changes on
   // disk. Re-rendering is safe because renderMarkdown sanitizes every time.
-  function applyLiveUpdate({ filePath, content }) {
+  async function applyLiveUpdate({ filePath, content }) {
     if (filePath !== activePath) return;
     const previousTop = readingPane.scrollTop;
-    renderMarkdown(content);
+    const rendered = await renderMarkdown(content);
+    if (!rendered || filePath !== activePath) return;
     buildToc({ keepActive: true });
     setStaleNotice(false);
     // Keep the reading position; clamp it when the document got shorter.
-    const maxTop = Math.max(0, readingPane.scrollHeight - readingPane.clientHeight);
-    readingPane.scrollTop = Math.min(previousTop, maxTop);
+    const restoreTop = Math.min(previousTop, Math.max(0, readingPane.scrollHeight - readingPane.clientHeight));
+    readingPane.scrollTop = restoreTop;
+    // Scroll anchoring can adjust once more after the replacement layout lands.
+    requestAnimationFrame(() => {
+      if (filePath !== activePath) return;
+      const maxTop = Math.max(0, readingPane.scrollHeight - readingPane.clientHeight);
+      readingPane.scrollTop = Math.min(previousTop, maxTop);
+    });
     // Ranges point at the old nodes now; re-run the query without moving the
     // reader, keeping the current match number where the new text allows it.
     if (findOpen) refreshFind({ scroll: false });
@@ -696,20 +1305,20 @@
 
   async function handleOpenRequest() {
     const opened = await window.api.openFileDialog();
-    applyOpenPayload(opened);
+    await applyOpenPayload(opened);
   }
 
   // Dialog and menu opens carry the full selection; drag-drop is a bare
   // document.
-  function applyOpenPayload(payload) {
+  async function applyOpenPayload(payload) {
     if (!payload) return;
-    if (payload.document) applyFreshDocument(payload.document, payload.files || []);
-    else applyFreshDocument(payload);
+    if (payload.document) await applyFreshDocument(payload.document, payload.files || []);
+    else await applyFreshDocument(payload);
   }
 
   // Menu and dialog opens start a new stack; moving inside a folder or through
   // a link pushes onto the current one.
-  function applyFreshDocument(document, files = []) {
+  async function applyFreshDocument(document, files = []) {
     // rememberSessionEntry moves entries to the top, so walk backwards to keep
     // the dialog's order below the active file.
     for (let index = files.length - 1; index >= 0; index -= 1) {
@@ -720,7 +1329,7 @@
     history.splice(0);
     historyIndex = -1;
     pushHistoryEntry(document);
-    showDocument(document);
+    await showDocument(document);
   }
 
   // ---------- Sidebar ----------
@@ -1379,7 +1988,7 @@
     tocEntries = new Map();
     tocList.textContent = '';
     tocHeadings = Array.from(markdownBody.querySelectorAll(TOC_LEVELS)).filter(
-      (heading) => heading.id
+      (heading) => heading.id && !heading.closest('.footnotes, .mermaid-block')
     );
     tocEndBlock = markdownBody.lastElementChild;
     syncTocVisibility();
@@ -1453,18 +2062,33 @@
   // Ctrl/Cmd+F finds in the document. Adding Shift opens sidebar search:
   // the folder when one is open, otherwise the files opened this session.
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !helpView.hidden) {
+      event.preventDefault();
+      closeHelp();
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     if (event.key.toLowerCase() !== 'f') return;
+    if (!helpView.hidden && !event.shiftKey) return;
     event.preventDefault();
     if (event.shiftKey) showSidebarSearch();
     else openFindBar();
   });
 
-  window.api.onFileOpened((data) => applyOpenPayload(data));
-  window.api.onFolderOpened((data) => applyFolderOpened(data));
+  helpClose.addEventListener('click', () => closeHelp());
+  window.api.onOpenHelp(() => {
+    void openHelp();
+  });
+
+  window.api.onFileOpened((data) => {
+    void applyOpenPayload(data);
+  });
+  window.api.onFolderOpened((data) => {
+    void applyFolderOpened(data);
+  });
   window.api.onFolderChanged((data) => applyFolderChanged(data));
   window.api.onFileChanged((data) => {
-    if (data) applyLiveUpdate(data);
+    if (data) void applyLiveUpdate(data);
   });
   window.api.onFileMissing((data) => {
     if (data && data.filePath === activePath) setStaleNotice(true);
