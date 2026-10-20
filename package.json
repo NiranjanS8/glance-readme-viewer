@@ -4,7 +4,7 @@
   "description": "Glance — lightweight README viewer desktop app",
   "main": "main.js",
   "author": "NiranjanS8",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "homepage": "https://github.com/NiranjanS8/glance-readme-viewer",
   "repository": {
     "type": "git",
@@ -54,6 +54,7 @@
       "index.html",
       "style.css",
       "HELP.md",
+      "LICENSE",
       "package.json",
       "node_modules/markdown-it/dist/**",
       "node_modules/markdown-it-anchor/dist/**",

@@ -116,4 +116,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE)
+
+Personal, educational, research, and other noncommercial use is permitted.
+Commercial use requires a separate written license from the copyright holder.
+
+The already-published `v0.1.1` and `v0.1.2` releases were published under the
+MIT license. Those grants cannot be revoked retroactively; this license applies
+to the current source and future releases.
