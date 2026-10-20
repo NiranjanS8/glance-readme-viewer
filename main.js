@@ -8,6 +8,14 @@ const { createTreeWatcher, guardPath, isInside, scanMarkdown, toPosix } = requir
 const ALLOWED_EXTS = new Set(['.md', '.markdown', '.mdown', '.txt']);
 const IMAGE_SCHEME = 'glance-file';
 
+// Folder search caps. The per-file limit keeps one noisy file from filling the
+// sidebar; the total limit keeps a huge folder from producing an endless list.
+const SEARCH_MAX_RESULTS = 200;
+const SEARCH_PER_FILE = 5;
+const SEARCH_CONTEXT = 60;
+const SEARCH_BATCH_GROUPS = 8;
+const SEARCH_YIELD_EVERY = 12;
+
 // Relative images are served from disk through our own scheme, never file://.
 // It has to be declared before the app is ready.
 protocol.registerSchemesAsPrivileged([
@@ -27,6 +35,15 @@ let folderFiles = [];
 let folderTruncated = false;
 let folderLimit = 0;
 let settings = { liveReload: true, tableOfContents: true, reopenLastFolder: true, lastFolder: null };
+
+// Bumped for every new search so a read that finishes late cannot publish into
+// a newer result set.
+let searchToken = 0;
+let activeSearchId = 0;
+
+// Every document the window has opened. The renderer may search only these
+// absolute paths, so opened-file search cannot become an arbitrary file reader.
+const openedPaths = new Set();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,6 +65,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     fileWatcher.stop();
     treeWatcher.stop();
+    cancelActiveSearch();
     mainWindow = null;
   });
 
@@ -190,6 +208,7 @@ function setTableOfContents(enabled) {
 // the window is showing. `root` is what local images and links may reach.
 async function readDocument(filePath, { root, folder, name, relative }) {
   const content = await fs.readFile(filePath, 'utf8');
+  openedPaths.add(filePath);
   const leavingFolder = !folder && folderRoot !== null;
   allowedRoot = root;
   folderRoot = folder ? root : null;
@@ -198,6 +217,7 @@ async function readDocument(filePath, { root, folder, name, relative }) {
     folderFiles = [];
     folderTruncated = false;
     folderLimit = 0;
+    cancelActiveSearch();
     treeWatcher.stop();
   }
   setActiveFile(filePath);
@@ -210,9 +230,7 @@ async function readDocument(filePath, { root, folder, name, relative }) {
   };
 }
 
-// Any path the user picked: inside the open folder it stays folder mode,
-// otherwise that file's own directory becomes the allowed root.
-async function openPath(candidate) {
+async function resolveFile(candidate) {
   if (typeof candidate !== 'string' || candidate.length === 0) {
     return { status: 'missing', displayPath: '' };
   }
@@ -229,13 +247,22 @@ async function openPath(candidate) {
   if (!ALLOWED_EXTS.has(path.extname(real).toLowerCase())) {
     return { status: 'unsupported', displayPath: path.basename(real) };
   }
+  return { status: 'ok', filePath: real };
+}
+
+// Any path the user picked: inside the open folder it stays folder mode,
+// otherwise that file's own directory becomes the allowed root.
+async function openPath(candidate) {
+  const resolved = await resolveFile(candidate);
+  if (resolved.status !== 'ok') return resolved;
+  const { filePath } = resolved;
 
   try {
-    if (folderRoot && isInside(folderRoot, real)) {
-      const relative = toPosix(path.relative(folderRoot, real));
+    if (folderRoot && isInside(folderRoot, filePath)) {
+      const relative = toPosix(path.relative(folderRoot, filePath));
       return {
         status: 'ok',
-        document: await readDocument(real, {
+        document: await readDocument(filePath, {
           root: folderRoot,
           folder: true,
           name: folderName,
@@ -245,15 +272,15 @@ async function openPath(candidate) {
     }
     return {
       status: 'ok',
-      document: await readDocument(real, {
-        root: path.dirname(real),
+      document: await readDocument(filePath, {
+        root: path.dirname(filePath),
         folder: false,
         name: null,
-        relative: path.basename(real)
+        relative: path.basename(filePath)
       })
     };
   } catch {
-    return { status: 'missing', displayPath: path.basename(real) };
+    return { status: 'missing', displayPath: path.basename(filePath) };
   }
 }
 
@@ -276,6 +303,7 @@ async function openFolder(candidate) {
   if (!info || !info.isDirectory()) return null;
 
   const scanned = await scanMarkdown(real);
+  cancelActiveSearch();
   allowedRoot = real;
   folderRoot = real;
   folderName = path.basename(real) || real;
@@ -331,6 +359,158 @@ async function openFolderFile(relative) {
   } catch {
     return { status: 'missing', displayPath };
   }
+}
+
+function cancelActiveSearch() {
+  activeSearchId = 0;
+  searchToken += 1;
+}
+
+function escapePattern(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Occurrences are counted across the whole file so "N more in this file" is
+// exact, but only `limit` snippets are kept. The walking line cursor keeps
+// line numbers cheap for hits that appear in order.
+function collectHits(text, pattern, limit) {
+  const hits = [];
+  let occurrence = 0;
+  let line = 1;
+  let cursor = 0;
+  pattern.lastIndex = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match[0].length === 0) {
+      pattern.lastIndex += 1;
+      continue;
+    }
+    if (hits.length < limit) {
+      while (cursor < match.index) {
+        if (text.charCodeAt(cursor) === 10) line += 1;
+        cursor += 1;
+      }
+      const start = Math.max(0, match.index - SEARCH_CONTEXT);
+      const end = Math.min(text.length, match.index + match[0].length + SEARCH_CONTEXT);
+      hits.push({
+        line,
+        snippet: text.slice(start, end).replace(/\n/g, ' '),
+        matchStart: match.index - start,
+        matchLength: match[0].length,
+        occurrence
+      });
+    }
+    occurrence += 1;
+  }
+  return { hits, more: Math.max(0, occurrence - hits.length) };
+}
+
+// Shared search loop: each entry carries a display label and a loader. Reads
+// happen one at a time and groups are pushed in batches, while a superseded
+// search stops at the next file boundary.
+async function runFileSearch({ query, searchId, token, sender, entries }) {
+  const pattern = new RegExp(escapePattern(query), 'gi');
+  let emitted = 0;
+  let batch = [];
+  let truncated = false;
+
+  const send = (channel, payload) => {
+    if (!sender.isDestroyed()) sender.send(channel, payload);
+  };
+  const flush = () => {
+    if (batch.length === 0) return;
+    send('search:batch', { searchId, groups: batch });
+    batch = [];
+  };
+
+  try {
+    for (let i = 0; i < entries.length; i++) {
+      if (token !== searchToken) return;
+      if (emitted >= SEARCH_MAX_RESULTS) {
+        truncated = true;
+        break;
+      }
+      const entry = entries[i];
+      let content;
+      try {
+        content = await entry.load();
+      } catch {
+        continue; // unreadable file: skip it, keep searching
+      }
+      if (typeof content !== 'string') continue;
+      const text = content.replace(/\r\n?/g, '\n');
+      const limit = Math.min(SEARCH_PER_FILE, SEARCH_MAX_RESULTS - emitted);
+      const { hits, more } = collectHits(text, pattern, limit);
+      if (hits.length === 0) continue;
+      emitted += hits.length;
+      const group = { relativePath: entry.label, hits, more };
+      if (entry.filePath) group.filePath = entry.filePath;
+      batch.push(group);
+      if (batch.length >= SEARCH_BATCH_GROUPS) flush();
+      if (emitted >= SEARCH_MAX_RESULTS) {
+        truncated = more > 0 || i < entries.length - 1;
+        break;
+      }
+      if (i % SEARCH_YIELD_EVERY === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }
+    if (token !== searchToken) return;
+    flush();
+    send('search:done', { searchId, truncated });
+  } catch {
+    if (token !== searchToken) return;
+    flush();
+    send('search:done', { searchId, truncated: false });
+  }
+}
+
+// Folder search reads only files the tree scan already vetted, and every read
+// still goes through the path guard.
+async function runFolderSearch({ query, searchId, token, sender }) {
+  const root = folderRoot;
+  const entries = folderFiles.slice().map((relative) => ({
+    label: relative,
+    load: async () => {
+      const guarded = await guardPath(root, relative);
+      if (!guarded.ok) return null;
+      try {
+        return await fs.readFile(guarded.path, 'utf8');
+      } catch {
+        return null;
+      }
+    }
+  }));
+  return runFileSearch({ query, searchId, token, sender, entries });
+}
+
+// Opened-file search is limited to paths main has actually opened, and each is
+// canonicalised again before reading so a moved link cannot widen the set.
+async function runOpenedSearch({ query, searchId, token, sender, paths }) {
+  const entries = [];
+  const seen = new Set();
+  for (const candidate of paths) {
+    if (typeof candidate !== 'string') continue;
+    const real = await fs.realpath(candidate).catch(() => null);
+    if (!real || seen.has(real) || !openedPaths.has(real)) continue;
+    if (!ALLOWED_EXTS.has(path.extname(real).toLowerCase())) continue;
+    seen.add(real);
+    const parent = path.basename(path.dirname(real));
+    entries.push({
+      label: parent ? `${parent}/${path.basename(real)}` : path.basename(real),
+      filePath: real,
+      load: async () => {
+        const info = await fs.stat(real).catch(() => null);
+        if (!info || !info.isFile()) return null;
+        try {
+          return await fs.readFile(real, 'utf8');
+        } catch {
+          return null;
+        }
+      }
+    });
+  }
+  return runFileSearch({ query, searchId, token, sender, entries });
 }
 
 function splitHref(href) {
@@ -436,8 +616,8 @@ async function openFolderDialog() {
 async function openFileDialog() {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Open Markdown file',
-    properties: ['openFile'],
+    title: 'Open files',
+    properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Markdown', extensions: ['md', 'markdown', 'mdown'] },
       { name: 'Text', extensions: ['txt'] },
@@ -445,16 +625,48 @@ async function openFileDialog() {
     ]
   });
   if (result.canceled || result.filePaths.length === 0) return null;
-  const opened = await openPath(result.filePaths[0]);
-  if (opened.status !== 'ok') {
+
+  const files = [];
+  const seen = new Set();
+  for (const candidate of result.filePaths) {
+    const resolved = await resolveFile(candidate);
+    if (resolved.status !== 'ok' || seen.has(resolved.filePath)) continue;
+    seen.add(resolved.filePath);
+    files.push({ filePath: resolved.filePath, name: path.basename(resolved.filePath) });
+  }
+  if (files.length === 0) {
     await dialog.showMessageBox(mainWindow, {
       type: 'error',
-      title: 'Could not open file',
-      message: `Could not read ${result.filePaths[0]}`
+      title: 'Could not open files',
+      message: 'Could not read the selected files.'
     });
     return null;
   }
-  return opened.document;
+
+  // The first readable file is displayed; every selected file joins the
+  // session list so it can be opened from the sidebar without another dialog.
+  let document = null;
+  for (let index = 0; index < files.length; index += 1) {
+    const opened = await openPath(files[index].filePath);
+    if (opened.status !== 'ok') {
+      files.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    document = opened.document;
+    break;
+  }
+  if (!document) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'Could not open files',
+      message: 'Could not read the selected files.'
+    });
+    return null;
+  }
+
+  for (const file of files) openedPaths.add(file.filePath);
+  return { document, files };
 }
 
 // The zoom roles only run from the native menu, and the zoomIn role's own
@@ -482,10 +694,10 @@ function buildMenu() {
           }
         },
         {
-          // A shortcut chord (Ctrl+K Ctrl+O) is not something Electron
-          // accelerators can express, so folder opening gets its own combo.
+          // CmdOrCtrl+Shift+F now belongs to folder search, so folder opening
+          // moves to the explorer-style combo.
           label: 'Open Folder...',
-          accelerator: 'CmdOrCtrl+Shift+F',
+          accelerator: 'CmdOrCtrl+Shift+E',
           click: async () => {
             const opened = await openFolderDialog();
             if (opened && mainWindow) {
@@ -639,6 +851,9 @@ ipcMain.handle('dialog:openFile', () => openFileDialog());
 // --- IPC: the table of contents preference, read once on renderer startup ---
 ipcMain.handle('toc:get-enabled', () => settings.tableOfContents);
 
+// The rail's own icon toggles the same persisted preference as the View menu.
+ipcMain.on('toc:set-enabled', (_event, enabled) => setTableOfContents(enabled !== false));
+
 // --- IPC: open a known path in the session (sidebar, shortcuts, history) ---
 ipcMain.handle('file:read', async (_event, filePath) => {
   if (typeof filePath !== 'string' || filePath.length === 0) return null;
@@ -672,6 +887,40 @@ ipcMain.handle('folder:file', (_event, relative) => openFolderFile(relative));
 
 // --- IPC: a relative link inside a rendered document ---
 ipcMain.handle('link:follow', (_event, href) => followLink(href));
+
+// --- IPC: sidebar search, in the open folder or across opened files ---
+ipcMain.on('search:start', (event, payload) => {
+  const searchId = payload && payload.searchId;
+  const query = payload && payload.query;
+  const scope = payload && payload.scope;
+  if (!Number.isInteger(searchId)) return;
+  const finishEmpty = () => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('search:done', { searchId, truncated: false });
+    }
+  };
+  if (typeof query !== 'string' || query.length < 2) {
+    finishEmpty();
+    return;
+  }
+  activeSearchId = searchId;
+  const token = ++searchToken;
+  if (scope === 'opened') {
+    const paths = Array.isArray(payload.paths) ? payload.paths : [];
+    runOpenedSearch({ query, searchId, token, sender: event.sender, paths }).catch(finishEmpty);
+    return;
+  }
+  if (!folderRoot) {
+    finishEmpty();
+    return;
+  }
+  runFolderSearch({ query, searchId, token, sender: event.sender }).catch(finishEmpty);
+});
+
+ipcMain.on('search:cancel', (_event, searchId) => {
+  if (searchId !== activeSearchId) return;
+  cancelActiveSearch();
+});
 
 // --- IPC: the renderer owns history; main only greys out the menu items ---
 ipcMain.on('history:state', (_event, state) => {

@@ -7,6 +7,11 @@
   const TOC_LEVELS = 'h1, h2, h3, h4'; // the outline stops at H4
   // Relative images are served by main through this scheme, never file://.
   const IMAGE_PREFIX = 'glance-file://local/';
+  const FIND_DEBOUNCE_MS = 100;
+  const SEARCH_DEBOUNCE_MS = 250;
+  const SEARCH_MIN_LENGTH = 2;
+  const HIGHLIGHT_ALL = 'glance-find';
+  const HIGHLIGHT_CURRENT = 'glance-find-current';
 
   const html = document.documentElement;
   const filenameEl = document.getElementById('filename');
@@ -21,10 +26,21 @@
   const sidebar = document.getElementById('sidebar');
   const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
   const showSidebarBtn = document.getElementById('showSidebarBtn');
+  const sidebarSearchBtn = document.getElementById('sidebarSearchBtn');
   const readingPane = document.getElementById('readingPane');
   const dropHint = document.getElementById('dropHint');
   const staleNotice = document.getElementById('staleNotice');
   const linkNotice = document.getElementById('linkNotice');
+  const findBar = document.getElementById('findBar');
+  const findInput = document.getElementById('findInput');
+  const findCount = document.getElementById('findCount');
+  const findCaseBtn = document.getElementById('findCase');
+  const tocToggle = document.getElementById('tocToggle');
+  const searchView = document.getElementById('searchView');
+  const searchInput = document.getElementById('sidebarSearchInput');
+  const searchClose = document.getElementById('sidebarSearchClose');
+  const searchStatus = document.getElementById('sidebarSearchStatus');
+  const searchResults = document.getElementById('sidebarSearchResults');
 
   const sessionFiles = []; // [{ filePath, name }]
   const treeExpanded = new Set(); // folder paths the reader left open
@@ -33,6 +49,22 @@
   let activePath = null;
   let current = null; // { mode, filePath, relativePath }
   let folder = null; // { name, root, files, truncated, limit } while a folder is open
+
+  const highlightsSupported =
+    typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight === 'function';
+
+  let findOpen = false;
+  let findCaseSensitive = false;
+  let findQuery = '';
+  let findTimer = null;
+  let findMatches = [];
+  let findCurrent = -1;
+  let findJumpTarget = null;
+
+  let sidebarSearchQuery = '';
+  let sidebarSearchSeq = 0;
+  let sidebarSearchActive = 0;
+  let sidebarSearchTimer = null;
 
   // ---------- Markdown setup ----------
 
@@ -289,6 +321,161 @@
     return `Linked file not found: ${shown}`;
   }
 
+  // ---------- Find in document ----------
+  // Ranges painted through the CSS Custom Highlight API: the DOM is never
+  // mutated, so the sanitizer, the TOC and live reload keep working untouched.
+
+  function escapePattern(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function collectFindMatches() {
+    if (!findQuery) return [];
+    let pattern;
+    try {
+      pattern = new RegExp(escapePattern(findQuery), findCaseSensitive ? 'gu' : 'giu');
+    } catch {
+      return [];
+    }
+
+    const matches = [];
+    const visibility = new Map();
+    const isVisible = (element) => {
+      if (!visibility.has(element)) {
+        let visible = true;
+        try {
+          visible = element.checkVisibility();
+        } catch {
+          visible = true;
+        }
+        visibility.set(element, visible);
+      }
+      return visibility.get(element);
+    };
+
+    const walker = document.createTreeWalker(markdownBody, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || parent.closest('.find-bar')) return NodeFilter.FILTER_REJECT;
+        return isVisible(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+
+    let node;
+    while ((node = walker.nextNode())) {
+      pattern.lastIndex = 0;
+      let match;
+      while ((match = pattern.exec(node.nodeValue)) !== null) {
+        if (match[0].length === 0) {
+          pattern.lastIndex += 1;
+          continue;
+        }
+        const range = document.createRange();
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + match[0].length);
+        matches.push(range);
+      }
+    }
+    return matches;
+  }
+
+  function clearFindHighlights() {
+    if (!highlightsSupported) return;
+    CSS.highlights.delete(HIGHLIGHT_ALL);
+    CSS.highlights.delete(HIGHLIGHT_CURRENT);
+  }
+
+  function paintFindHighlights() {
+    if (!highlightsSupported) return;
+    clearFindHighlights();
+    if (findMatches.length === 0) return;
+    CSS.highlights.set(HIGHLIGHT_ALL, new Highlight(...findMatches));
+    if (findCurrent >= 0 && findCurrent < findMatches.length) {
+      CSS.highlights.set(HIGHLIGHT_CURRENT, new Highlight(findMatches[findCurrent]));
+    }
+  }
+
+  function updateFindCounter() {
+    if (!findOpen || findQuery.length === 0) {
+      findCount.textContent = '';
+      return;
+    }
+    findCount.textContent = findMatches.length
+      ? `${findCurrent + 1} of ${findMatches.length}`
+      : 'no matches';
+  }
+
+  // Off-screen only: a match already in view keeps the reader's place.
+  function scrollToFindMatch() {
+    if (findCurrent < 0) return;
+    const range = findMatches[findCurrent];
+    if (!range) return;
+    const pane = readingPane.getBoundingClientRect();
+    const rect = range.getBoundingClientRect();
+    if (rect.top >= pane.top + 48 && rect.bottom <= pane.bottom - 8) return;
+    const top =
+      readingPane.scrollTop + rect.top - pane.top - (readingPane.clientHeight - rect.height) / 2;
+    readingPane.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+  }
+
+  function refreshFind({ reset = false, scroll = false, jumpTo = null } = {}) {
+    if (!findOpen) return;
+    findMatches = collectFindMatches();
+    if (jumpTo !== null && jumpTo >= 0 && jumpTo < findMatches.length) {
+      findCurrent = jumpTo;
+    } else if (reset || findCurrent < 0) {
+      findCurrent = findMatches.length ? 0 : -1;
+    } else if (findCurrent >= findMatches.length) {
+      findCurrent = findMatches.length - 1;
+    }
+    if (findMatches.length === 0) findCurrent = -1;
+    paintFindHighlights();
+    updateFindCounter();
+    if (scroll) scrollToFindMatch();
+  }
+
+  function openFindBar(query = null) {
+    if (query !== null) {
+      findInput.value = query;
+      findQuery = query;
+    }
+    if (!findOpen) {
+      findOpen = true;
+      findBar.hidden = false;
+      findQuery = findInput.value;
+      refreshFind({ reset: true, scroll: true });
+    }
+    findInput.focus();
+    findInput.select();
+  }
+
+  function closeFindBar() {
+    clearTimeout(findTimer);
+    findTimer = null;
+    findOpen = false;
+    findBar.hidden = true;
+    findMatches = [];
+    findCurrent = -1;
+    findJumpTarget = null;
+    clearFindHighlights();
+    findCount.textContent = '';
+    readingPane.focus({ preventScroll: true });
+  }
+
+  function stepFind(direction) {
+    if (findMatches.length === 0) return;
+    findCurrent = (findCurrent + direction + findMatches.length) % findMatches.length;
+    paintFindHighlights();
+    updateFindCounter();
+    scrollToFindMatch();
+  }
+
+  function runFindFromInput() {
+    findQuery = findInput.value;
+    refreshFind({ reset: true, scroll: true });
+  }
+
   // ---------- History ----------
   // The renderer owns the stack because only it knows the reading position.
   // Entries are re-read from disk on the way back, so edits show up and a file
@@ -391,7 +578,10 @@
     activePath = filePath;
     current = { mode, filePath, relativePath };
     // A file opened outside the folder leaves folder mode behind.
-    if (mode === 'single') folder = null;
+    if (mode === 'single') {
+      if (folder) resetSidebarSearch();
+      folder = null;
+    }
     rememberSessionEntry(filePath, name);
     filenameEl.textContent = name;
     window.api.setTitle(name);
@@ -410,12 +600,24 @@
     const target = anchor ? anchorTarget(anchor) : null;
     if (target) {
       scrollToAnchor(target);
-      return;
+    } else {
+      readingPane.scrollTop = scrollTop;
+      // A restored position should light the entry the reader is actually at,
+      // not whichever heading the fresh build defaulted to.
+      syncTocActive();
     }
-    readingPane.scrollTop = scrollTop;
-    // A restored position should light the entry the reader is actually at,
-    // not whichever heading the fresh build defaulted to.
-    syncTocActive();
+
+    // The find bar follows the reader across files and live reloads.
+    if (findOpen) {
+      refreshFind({ reset: true, scroll: !target, jumpTo: findJumpTarget });
+    }
+    findJumpTarget = null;
+
+    // A newly opened file joins the opened-files scope, so refresh a search
+    // that is already sitting in the sidebar.
+    if (!folder && !searchView.hidden && sidebarSearchQuery.length >= SEARCH_MIN_LENGTH) {
+      startSidebarSearch();
+    }
   }
 
   // A folder with no README opens no document: the tree is live and the
@@ -423,6 +625,7 @@
   function showFolderWithoutDocument() {
     activePath = null;
     current = null;
+    if (findOpen) closeFindBar();
     markdownBody.innerHTML = '';
     markdownBody.hidden = true;
     emptyState.hidden = false;
@@ -439,6 +642,7 @@
 
   function applyFolderOpened(payload) {
     if (!payload) return;
+    resetSidebarSearch();
     folder = {
       name: payload.name,
       root: payload.root,
@@ -485,16 +689,34 @@
     // Keep the reading position; clamp it when the document got shorter.
     const maxTop = Math.max(0, readingPane.scrollHeight - readingPane.clientHeight);
     readingPane.scrollTop = Math.min(previousTop, maxTop);
+    // Ranges point at the old nodes now; re-run the query without moving the
+    // reader, keeping the current match number where the new text allows it.
+    if (findOpen) refreshFind({ scroll: false });
   }
 
   async function handleOpenRequest() {
     const opened = await window.api.openFileDialog();
-    if (opened) applyFreshDocument(opened);
+    applyOpenPayload(opened);
+  }
+
+  // Dialog and menu opens carry the full selection; drag-drop is a bare
+  // document.
+  function applyOpenPayload(payload) {
+    if (!payload) return;
+    if (payload.document) applyFreshDocument(payload.document, payload.files || []);
+    else applyFreshDocument(payload);
   }
 
   // Menu and dialog opens start a new stack; moving inside a folder or through
   // a link pushes onto the current one.
-  function applyFreshDocument(document) {
+  function applyFreshDocument(document, files = []) {
+    // rememberSessionEntry moves entries to the top, so walk backwards to keep
+    // the dialog's order below the active file.
+    for (let index = files.length - 1; index >= 0; index -= 1) {
+      const entry = files[index];
+      if (entry.filePath === document.filePath) continue;
+      rememberSessionEntry(entry.filePath, entry.name);
+    }
     history.splice(0);
     historyIndex = -1;
     pushHistoryEntry(document);
@@ -744,6 +966,287 @@
     }
   });
 
+  // ---------- Sidebar search ----------
+
+  function setSearchStatus(message) {
+    searchStatus.textContent = message;
+    searchStatus.hidden = !message;
+  }
+
+  function searchIdleMessage() {
+    return !folder && sessionFiles.length === 0 ? 'open a file to search' : 'type to search';
+  }
+
+  function syncSearchTrigger() {
+    const open = !searchView.hidden;
+    const filesLabel = folder ? 'folder files' : 'opened files';
+    sidebarSearchBtn.setAttribute('aria-pressed', String(open));
+    sidebarSearchBtn.title = open ? `Show ${filesLabel}` : 'Search (Ctrl+Shift+F)';
+    sidebarSearchBtn.setAttribute('aria-label', open ? `Show ${filesLabel}` : 'Search files');
+    searchClose.title = `Show ${filesLabel}`;
+  }
+
+  function showSearchView() {
+    if (sidebar.hidden) {
+      sidebar.hidden = false;
+      showSidebarBtn.hidden = true;
+    }
+    fileList.hidden = true;
+    searchView.hidden = false;
+    syncSearchTrigger();
+  }
+
+  function hideSearchView() {
+    searchView.hidden = true;
+    fileList.hidden = false;
+    syncSearchTrigger();
+  }
+
+  function closeSidebarSearch() {
+    cancelSidebarSearch();
+    hideSearchView();
+    readingPane.focus({ preventScroll: true });
+  }
+
+  function toggleSidebarSearch() {
+    if (!searchView.hidden) closeSidebarSearch();
+    else showSidebarSearch();
+  }
+
+  function cancelSidebarSearch() {
+    if (sidebarSearchActive) window.api.cancelSearch(sidebarSearchActive);
+    sidebarSearchActive = 0;
+  }
+
+  function resetSidebarSearch() {
+    clearTimeout(sidebarSearchTimer);
+    sidebarSearchTimer = null;
+    cancelSidebarSearch();
+    sidebarSearchQuery = '';
+    searchInput.value = '';
+    searchResults.textContent = '';
+    setSearchStatus(searchIdleMessage());
+    hideSearchView();
+  }
+
+  function startSidebarSearch() {
+    clearTimeout(sidebarSearchTimer);
+    sidebarSearchTimer = null;
+    cancelSidebarSearch();
+    sidebarSearchQuery = searchInput.value;
+    searchResults.textContent = '';
+    if (sidebarSearchQuery.length < SEARCH_MIN_LENGTH) {
+      setSearchStatus(searchIdleMessage());
+      return;
+    }
+    const searchId = ++sidebarSearchSeq;
+    sidebarSearchActive = searchId;
+    setSearchStatus('searching');
+    if (folder) {
+      window.api.searchFolder(searchId, sidebarSearchQuery);
+      return;
+    }
+    if (sessionFiles.length === 0) {
+      sidebarSearchActive = 0;
+      setSearchStatus('open a file to search');
+      return;
+    }
+    // Without a folder, the session's opened files are the search scope.
+    window.api.searchOpened(
+      searchId,
+      sidebarSearchQuery,
+      sessionFiles.map((entry) => entry.filePath)
+    );
+  }
+
+  function showSidebarSearch() {
+    const alreadyOpen = !searchView.hidden;
+    showSearchView();
+    searchInput.placeholder = folder ? 'search folder' : 'search opened files';
+    searchInput.focus();
+    searchInput.select();
+    if (alreadyOpen) return;
+    if (sidebarSearchQuery.length < SEARCH_MIN_LENGTH) {
+      setSearchStatus(searchIdleMessage());
+      return;
+    }
+    // Reopening after it was closed re-runs the query and picks up edits.
+    startSidebarSearch();
+  }
+
+  function searchHitRows() {
+    return Array.from(searchResults.querySelectorAll('.search-hit'));
+  }
+
+  function appendSearchGroups(groups) {
+    for (const group of groups) {
+      const target = group.filePath || group.relativePath;
+      const scope = group.filePath ? 'opened' : 'folder';
+      const item = document.createElement('li');
+      item.className = 'search-group';
+
+      const file = document.createElement('div');
+      file.className = 'search-file';
+      file.textContent = group.relativePath;
+      file.title = target;
+      item.appendChild(file);
+
+      const hits = document.createElement('ul');
+      hits.className = 'search-hits';
+      (group.hits || []).forEach((hit) =>
+        hits.appendChild(searchHitRow(target, group.relativePath, hit, scope))
+      );
+      if (group.more > 0) {
+        const more = document.createElement('li');
+        more.className = 'search-more';
+        more.textContent = `${group.more} more in this file`;
+        hits.appendChild(more);
+      }
+
+      item.appendChild(hits);
+      searchResults.appendChild(item);
+    }
+  }
+
+  function searchHitRow(target, label, hit, scope) {
+    const row = document.createElement('li');
+    row.className = 'search-hit';
+    row.tabIndex = -1;
+    row.dataset.path = target;
+    row.dataset.label = label;
+    row.dataset.scope = scope;
+    row.dataset.occurrence = String(hit.occurrence);
+    row.title = `${target}:${hit.line}`;
+
+    const line = document.createElement('span');
+    line.className = 'search-line';
+    line.textContent = String(hit.line);
+
+    const snippet = document.createElement('span');
+    snippet.className = 'search-snippet';
+    const end = hit.matchStart + hit.matchLength;
+    snippet.appendChild(document.createTextNode(hit.snippet.slice(0, hit.matchStart)));
+    const mark = document.createElement('mark');
+    mark.textContent = hit.snippet.slice(hit.matchStart, end);
+    snippet.appendChild(mark);
+    snippet.appendChild(document.createTextNode(hit.snippet.slice(end)));
+
+    row.append(line, snippet);
+    row.addEventListener('click', () => openSearchHit(row));
+    return row;
+  }
+
+  async function openSearchHit(row) {
+    const target = row.dataset.path;
+    const occurrence = Number(row.dataset.occurrence);
+    let openedDocument;
+
+    if (row.dataset.scope === 'opened') {
+      openedDocument = await window.api.readFile(target);
+      if (!openedDocument) {
+        setLinkNotice(`Could not open: ${row.dataset.label || target}`);
+        return;
+      }
+    } else {
+      const opened = await window.api.openFolderFile(target);
+      if (!opened) return;
+      if (opened.status !== 'ok') {
+        setLinkNotice(linkNoticeText(opened));
+        return;
+      }
+      openedDocument = opened.document;
+    }
+
+    clearTimeout(sidebarSearchTimer);
+    sidebarSearchTimer = null;
+    cancelSidebarSearch();
+    hideSearchView();
+
+    findOpen = true;
+    findBar.hidden = false;
+    findInput.value = sidebarSearchQuery;
+    findQuery = sidebarSearchQuery;
+    findJumpTarget = Number.isInteger(occurrence) ? occurrence : null;
+    await navigateTo(openedDocument);
+    findInput.focus();
+  }
+
+  searchInput.addEventListener('input', () => {
+    sidebarSearchQuery = searchInput.value;
+    clearTimeout(sidebarSearchTimer);
+    sidebarSearchTimer = null;
+    cancelSidebarSearch();
+    searchResults.textContent = '';
+    if (sidebarSearchQuery.length < SEARCH_MIN_LENGTH) {
+      setSearchStatus(searchIdleMessage());
+      return;
+    }
+    setSearchStatus('searching');
+    sidebarSearchTimer = setTimeout(startSidebarSearch, SEARCH_DEBOUNCE_MS);
+  });
+
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSidebarSearch();
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const rows = searchHitRows();
+      if (rows.length === 0) return;
+      event.preventDefault();
+      rows[event.key === 'ArrowDown' ? 0 : rows.length - 1].focus();
+      return;
+    }
+    if (event.key === 'Enter') {
+      const first = searchHitRows()[0];
+      if (!first) return;
+      event.preventDefault();
+      openSearchHit(first);
+    }
+  });
+
+  searchResults.addEventListener('keydown', (event) => {
+    const row = event.target instanceof HTMLElement ? event.target.closest('.search-hit') : null;
+    if (!row) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSidebarSearch();
+      return;
+    }
+    const rows = searchHitRows();
+    const index = rows.indexOf(row);
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      rows[Math.min(rows.length - 1, index + 1)].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      rows[Math.max(0, index - 1)].focus();
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openSearchHit(row);
+    }
+  });
+
+  window.api.onSearchBatch((payload) => {
+    if (!payload || payload.searchId !== sidebarSearchActive) return;
+    appendSearchGroups(payload.groups || []);
+    if (searchResults.querySelector('.search-hit')) setSearchStatus('');
+  });
+
+  window.api.onSearchDone((payload) => {
+    if (!payload || payload.searchId !== sidebarSearchActive) return;
+    sidebarSearchActive = 0;
+    if (payload.truncated) {
+      const note = document.createElement('li');
+      note.className = 'search-status search-truncated';
+      note.textContent = 'results truncated';
+      searchResults.appendChild(note);
+    }
+    if (!searchResults.querySelector('.search-hit')) setSearchStatus('no results');
+    else setSearchStatus('');
+  });
+
   // ---------- Table of contents ----------
 
   const TOC_MIN_HEADINGS = 3;
@@ -854,8 +1357,17 @@
     }
   }
 
+  function syncTocToggle() {
+    const available = tocHeadings.length >= TOC_MIN_HEADINGS;
+    tocToggle.hidden = !available;
+    tocToggle.setAttribute('aria-pressed', String(tocEnabled));
+    tocToggle.setAttribute('aria-label', tocEnabled ? 'Hide contents' : 'Show contents');
+    tocToggle.title = `${tocEnabled ? 'Hide' : 'Show'} contents (Ctrl+Shift+O)`;
+  }
+
   function syncTocVisibility() {
     tocPanel.hidden = !tocVisible();
+    syncTocToggle();
     startTocSpy();
   }
 
@@ -902,10 +1414,53 @@
   themeToggle.addEventListener('click', toggleTheme);
   openFileBtn.addEventListener('click', handleOpenRequest);
   emptyOpenBtn.addEventListener('click', handleOpenRequest);
+  sidebarSearchBtn.addEventListener('click', toggleSidebarSearch);
+  searchClose.addEventListener('click', closeSidebarSearch);
+  tocToggle.addEventListener('click', () => window.api.setTocEnabled(!tocEnabled));
 
-  window.api.onFileOpened((data) => {
-    if (data) applyFreshDocument(data);
+  findInput.addEventListener('input', () => {
+    clearTimeout(findTimer);
+    findTimer = setTimeout(runFindFromInput, FIND_DEBOUNCE_MS);
   });
+
+  findInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFindBar();
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    clearTimeout(findTimer);
+    findTimer = null;
+    // A query typed but not yet debounced becomes the first match.
+    if (findInput.value !== findQuery) {
+      runFindFromInput();
+      return;
+    }
+    stepFind(event.shiftKey ? -1 : 1);
+  });
+
+  findCaseBtn.addEventListener('click', () => {
+    findCaseSensitive = !findCaseSensitive;
+    findCaseBtn.setAttribute('aria-pressed', String(findCaseSensitive));
+    clearTimeout(findTimer);
+    findTimer = null;
+    findQuery = findInput.value;
+    refreshFind({ reset: true, scroll: true });
+  });
+
+  // Ctrl/Cmd+F finds in the document. Adding Shift opens sidebar search:
+  // the folder when one is open, otherwise the files opened this session.
+  window.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.key.toLowerCase() !== 'f') return;
+    event.preventDefault();
+    if (event.shiftKey) showSidebarSearch();
+    else openFindBar();
+  });
+
+  window.api.onFileOpened((data) => applyOpenPayload(data));
   window.api.onFolderOpened((data) => applyFolderOpened(data));
   window.api.onFolderChanged((data) => applyFolderChanged(data));
   window.api.onFileChanged((data) => {

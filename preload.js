@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  // Opens the native file dialog via main; resolves to { filePath, content } or null.
+  // Opens the native file dialog via main; resolves to { document, files } or null.
   openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
 
   // Reads a known path (used for drag-and-drop where renderer only has a path string).
@@ -48,6 +48,29 @@ contextBridge.exposeInMainWorld('api', {
     const listener = () => callback();
     ipcRenderer.on('history:forward', listener);
     return () => ipcRenderer.removeListener('history:forward', listener);
+  },
+
+  // Sidebar search runs in main; batches arrive as files are read so a large
+  // folder fills the sidebar progressively instead of blocking it.
+  searchFolder: (searchId, query) =>
+    ipcRenderer.send('search:start', { searchId, query, scope: 'folder' }),
+
+  // Same pipeline, but limited to files this session has already opened.
+  searchOpened: (searchId, query, paths) =>
+    ipcRenderer.send('search:start', { searchId, query, scope: 'opened', paths }),
+
+  cancelSearch: (searchId) => ipcRenderer.send('search:cancel', searchId),
+
+  onSearchBatch: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('search:batch', listener);
+    return () => ipcRenderer.removeListener('search:batch', listener);
+  },
+
+  onSearchDone: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('search:done', listener);
+    return () => ipcRenderer.removeListener('search:done', listener);
   },
 
   // Real filesystem path behind a dropped File. The non-standard File.path
@@ -100,6 +123,7 @@ contextBridge.exposeInMainWorld('api', {
   // Table of contents preference, owned by main so the View menu checkbox and
   // the panel agree between launches.
   getTocEnabled: () => ipcRenderer.invoke('toc:get-enabled'),
+  setTocEnabled: (enabled) => ipcRenderer.send('toc:set-enabled', enabled),
 
   // Fired when View > Table of Contents (or CmdOrCtrl+Shift+O) is used.
   onTocEnabledChanged: (callback) => {
