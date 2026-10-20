@@ -1,6 +1,6 @@
 {
   "name": "glance-readme-viewer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Glance — lightweight README viewer desktop app",
   "main": "main.js",
   "author": "NiranjanS8",
