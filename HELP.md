@@ -20,6 +20,9 @@ open with an empty reading pane until you choose a file.
 ## Move around
 
 - The sidebar holds the folder tree, or the files opened during this session.
+  Use the `x` on an opened file to close it from the session without closing the
+  window. While **View > Reopen Last Folder** is on, Glance remembers the last
+  document and opened files for the next launch.
 - **View > Back** and **View > Forward** move through the documents opened in
   this session.
 - The contents rail follows the headings in the open document. Click an entry
@@ -160,6 +163,9 @@ boundary while it is open.
 - **Open with Glance is missing.** Reinstall a Windows build from 0.1.3 or
   later; development launches do not register file associations. Windows can
   still ask which app to use the first time, so choose Glance there.
+- **Open with lists Electron instead of Glance.** Reinstall the 0.1.3 Windows
+  build. It writes Glance into the executable's product metadata and removes the
+  old `electron.exe` entry left by development launches.
 
 ## Privacy
 

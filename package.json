@@ -38,7 +38,8 @@
   },
   "devDependencies": {
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "rcedit": "^4.0.1"
   },
   "build": {
     "appId": "com.glance.readme-viewer",
@@ -96,6 +97,7 @@
     "nsis": {
       "include": "build/installer.nsh"
     },
+    "afterPack": "build/after-pack.cjs",
     "mac": {
       "target": [
         "dmg"

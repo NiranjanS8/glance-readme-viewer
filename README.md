@@ -28,11 +28,13 @@ chrome, flat surfaces, one accent color. No card-and-shadow dashboard look.
   and `javascript:` URLs are stripped silently
 - Live reload, back/forward history, a contents rail, in-document find, and
   sidebar search across the open folder or session files
+- Session list in the sidebar with a close control on each file; Glance reopens
+  the last document and session on the next launch
 - Dark and light themes (`Ctrl/Cmd+T`), OS preference on first launch,
   persisted afterwards
 - Built-in help (`F1`) read from the bundled `HELP.md`
 - External links always open in the default browser, never inside the app
-- Session file list in the collapsible sidebar; window title tracks the open file
+- Collapsible sidebar; window title tracks the open file
 
 ## Quickstart
 
@@ -54,9 +56,9 @@ npm run build
 Packages via electron-builder into `dist/` (Windows: NSIS installer,
 macOS: DMG, Linux: AppImage). The Windows installer registers `.md`,
 `.markdown`, and `.mdown` under **Open with Glance**; development launches do
-not register file associations. Local builds are **unsigned** — see
-`signAndEditExecutable` in `package.json`. For public releases, sign with
-your own certificate and remove that flag.
+not register file associations. Local builds are **unsigned**. A small
+`build/after-pack.cjs` step stamps the executable's product metadata as Glance,
+so Windows does not label it Electron; code signing is still disabled.
 
 ## Project structure
 
@@ -70,7 +72,7 @@ your own certificate and remove that flag.
 ├── HELP.md       # Built-in help, opened from Help > Help (F1)
 ├── theme-init.js # Applies the stored/OS theme before first paint (no flash)
 ├── style.css     # Design tokens, themes, GitHub-style markdown styling
-├── build/        # NSIS installer include for Open with Glance
+├── build/        # NSIS installer include and executable metadata hook
 ├── vendor/       # highlight.js browser bundle + self-hosted webfonts (see notes below)
 ├── assets/       # App icon
 └── SAMPLE.md     # Demo file exercising the render pipeline

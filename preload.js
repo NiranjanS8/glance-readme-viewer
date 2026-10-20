@@ -148,5 +148,12 @@ contextBridge.exposeInMainWorld('api', {
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
 
   // Keep the native window title in sync with the open file.
-  setTitle: (fileName) => ipcRenderer.send('window:setTitle', fileName)
+  setTitle: (fileName) => ipcRenderer.send('window:setTitle', fileName),
+
+  // Persist the opened-file list so the next launch can restore the session.
+  saveSession: (paths) => ipcRenderer.send('session:save', paths),
+
+  // The renderer removed the active file from the session list; stop watching
+  // it and clear the persisted last-file marker.
+  closeActiveFile: () => ipcRenderer.send('file:closed')
 });

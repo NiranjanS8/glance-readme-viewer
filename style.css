@@ -162,8 +162,41 @@ body {
 .file-item:not(.active) .file-dot { color: var(--text-muted); }
 
 .file-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.file-close {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.35;
+}
+
+.file-item:hover .file-close,
+.file-item:focus-within .file-close { opacity: 1; }
+
+.file-close:hover {
+  color: var(--accent);
+  background: var(--code-bg);
+}
+
+.file-close:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+  opacity: 1;
 }
 
 /* Folder tree: folders first, a fixed indent per level (set inline), no lines

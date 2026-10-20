@@ -35,7 +35,14 @@ let folderName = null;
 let folderFiles = [];
 let folderTruncated = false;
 let folderLimit = 0;
-let settings = { liveReload: true, tableOfContents: true, reopenLastFolder: true, lastFolder: null };
+let settings = {
+  liveReload: true,
+  tableOfContents: true,
+  reopenLastFolder: true,
+  lastFolder: null,
+  lastFile: null,
+  lastSession: []
+};
 
 // Bumped for every new search so a read that finishes late cannot publish into
 // a newer result set.
@@ -117,9 +124,7 @@ function createWindow() {
       await drainPendingOpenPaths();
       return;
     }
-    if (!settings.reopenLastFolder || !settings.lastFolder) return;
-    const opened = await openFolder(settings.lastFolder);
-    if (opened && mainWindow) mainWindow.webContents.send('folder:opened', opened);
+    await restoreLastView();
   });
 
   // Never navigate inside the app window; open http(s) externally and drop
@@ -191,7 +196,11 @@ async function loadSettings() {
     liveReload: stored.liveReload !== false,
     tableOfContents: stored.tableOfContents !== false,
     reopenLastFolder: stored.reopenLastFolder !== false,
-    lastFolder: typeof stored.lastFolder === 'string' ? stored.lastFolder : null
+    lastFolder: typeof stored.lastFolder === 'string' ? stored.lastFolder : null,
+    lastFile: typeof stored.lastFile === 'string' ? stored.lastFile : null,
+    lastSession: Array.isArray(stored.lastSession)
+      ? stored.lastSession.filter((candidate) => typeof candidate === 'string' && candidate.length > 0)
+      : []
   };
 }
 
@@ -213,6 +222,13 @@ function watchActiveFile() {
   }
 }
 
+function rememberActiveFile(filePath) {
+  const next = typeof filePath === 'string' && filePath.length > 0 ? filePath : null;
+  if (settings.lastFile === next) return;
+  settings.lastFile = next;
+  saveSettings();
+}
+
 function watchTree() {
   if (settings.liveReload && folderRoot) {
     treeWatcher.watch(folderRoot);
@@ -226,6 +242,7 @@ function watchTree() {
 function setActiveFile(filePath) {
   activeFilePath = filePath;
   activeRelative = allowedRoot ? toPosix(path.relative(allowedRoot, filePath)) : null;
+  rememberActiveFile(filePath);
   if (mainWindow) mainWindow.setTitle(`${path.basename(filePath)} — Glance`);
   watchActiveFile();
 }
@@ -293,6 +310,21 @@ async function resolveFile(candidate) {
     return { status: 'unsupported', displayPath: path.basename(real) };
   }
   return { status: 'ok', filePath: real };
+}
+
+// The saved session is only a hint: every entry is resolved again so a moved
+// or deleted file is dropped instead of becoming an unreadable sidebar row.
+async function restoredSessionEntries(activeFilePath) {
+  const entries = [];
+  const seen = new Set();
+  for (const candidate of settings.lastSession) {
+    const resolved = await resolveFile(candidate);
+    if (resolved.status !== 'ok') continue;
+    if (resolved.filePath === activeFilePath || seen.has(resolved.filePath)) continue;
+    seen.add(resolved.filePath);
+    entries.push({ filePath: resolved.filePath, name: path.basename(resolved.filePath) });
+  }
+  return entries;
 }
 
 // Any path the user picked: inside the open folder it stays folder mode,
@@ -373,9 +405,9 @@ function readmeAtRoot(files) {
 }
 
 // Opens a folder: scan it, make its real path the allowed root, watch it and
-// open the root README when there is one. Returns the payload the renderer
-// needs to draw the tree.
-async function openFolder(candidate) {
+// open the requested file, falling back to the root README. Returns the payload
+// the renderer needs to draw the tree.
+async function openFolder(candidate, preferredFile = null) {
   if (typeof candidate !== 'string' || candidate.length === 0) return null;
   let real;
   try {
@@ -404,13 +436,25 @@ async function openFolder(candidate) {
     saveSettings();
   }
 
-  let document = null;
-  const readme = readmeAtRoot(folderFiles);
-  if (readme) {
-    const opened = await openFolderFile(readme);
-    if (opened.status === 'ok') document = opened.document;
+  const candidates = [];
+  if (typeof preferredFile === 'string' && preferredFile.length > 0 && isInside(real, preferredFile)) {
+    candidates.push(toPosix(path.relative(real, preferredFile)));
   }
-  if (!document && mainWindow) mainWindow.setTitle(`${folderName} — Glance`);
+  const readme = readmeAtRoot(folderFiles);
+  if (readme && !candidates.includes(readme)) candidates.push(readme);
+
+  let document = null;
+  for (const relative of candidates) {
+    const opened = await openFolderFile(relative);
+    if (opened.status === 'ok') {
+      document = opened.document;
+      break;
+    }
+  }
+  if (!document) {
+    rememberActiveFile(null);
+    if (mainWindow) mainWindow.setTitle(`${folderName} — Glance`);
+  }
 
   return {
     name: folderName,
@@ -442,6 +486,40 @@ async function openFolderFile(relative) {
     return { status: 'ok', document };
   } catch {
     return { status: 'missing', displayPath };
+  }
+}
+
+// Restore the document that was on screen, not merely the folder it lived in.
+// A file inside the saved folder reopens in folder mode; any other file opens
+// on its own. If that file is gone, fall back to the folder and its README.
+async function restoreLastView() {
+  if (!settings.reopenLastFolder) return;
+  if (settings.lastFile) {
+    const resolved = await resolveFile(settings.lastFile);
+    if (resolved.status === 'ok') {
+      const savedFolder =
+        settings.lastFolder && (await fs.realpath(settings.lastFolder).catch(() => null));
+      if (savedFolder && isInside(savedFolder, resolved.filePath)) {
+        const opened = await openFolder(savedFolder, resolved.filePath);
+        if (opened) {
+          opened.session = await restoredSessionEntries(opened.document ? opened.document.filePath : null);
+          if (mainWindow) mainWindow.webContents.send('folder:opened', opened);
+          return;
+        }
+      }
+      const opened = await openPath(resolved.filePath);
+      if (opened.status === 'ok') {
+        const files = await restoredSessionEntries(opened.document.filePath);
+        if (mainWindow) mainWindow.webContents.send('file:opened', { document: opened.document, files });
+        return;
+      }
+    }
+  }
+  if (!settings.lastFolder) return;
+  const opened = await openFolder(settings.lastFolder);
+  if (opened) {
+    opened.session = await restoredSessionEntries(opened.document ? opened.document.filePath : null);
+    if (mainWindow) mainWindow.webContents.send('folder:opened', opened);
   }
 }
 
@@ -1078,6 +1156,38 @@ ipcMain.handle('clipboard:write-text', (_event, text) => {
   if (typeof text !== 'string') return false;
   clipboard.writeText(text);
   return true;
+});
+
+// --- IPC: the renderer owns the session list; keep its paths for the next
+// launch. Only paths with a supported extension are stored, and restore
+// resolves them again before opening anything. ---
+ipcMain.on('session:save', (_event, paths) => {
+  if (!Array.isArray(paths)) return;
+  const session = [];
+  const seen = new Set();
+  for (const candidate of paths) {
+    if (typeof candidate !== 'string' || candidate.length === 0) continue;
+    if (!ALLOWED_EXTS.has(path.extname(candidate).toLowerCase())) continue;
+    const absolute = path.resolve(candidate);
+    if (seen.has(absolute)) continue;
+    seen.add(absolute);
+    session.push(absolute);
+    if (session.length >= 100) break;
+  }
+  if (JSON.stringify(settings.lastSession) === JSON.stringify(session)) return;
+  settings.lastSession = session;
+  saveSettings();
+});
+
+// --- IPC: renderer closed the active file from the session list ---
+ipcMain.on('file:closed', () => {
+  activeFilePath = null;
+  activeRelative = null;
+  fileWatcher.stop();
+  rememberActiveFile(null);
+  if (mainWindow) {
+    mainWindow.setTitle(folderName ? `${folderName} — Glance` : 'Glance');
+  }
 });
 
 // --- IPC: renderer reports current filename so the OS title stays correct ---

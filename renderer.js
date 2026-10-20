@@ -1160,15 +1160,83 @@
     setLinkNotice(linkNoticeText(result));
   }
 
+  function syncSession() {
+    window.api.saveSession(sessionFiles.map((entry) => entry.filePath));
+  }
+
   function rememberSessionEntry(filePath, name) {
     const index = sessionFiles.findIndex((entry) => entry.filePath === filePath);
     if (index === -1) {
       sessionFiles.unshift({ filePath, name });
+      syncSession();
       return;
     }
     // move to top, keep click order predictable
     const [entry] = sessionFiles.splice(index, 1);
     sessionFiles.unshift(entry);
+    syncSession();
+  }
+
+  // A closed file must not come back through Back/Forward.
+  function forgetHistoryPath(filePath) {
+    let removedBefore = 0;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].filePath !== filePath) continue;
+      if (index < historyIndex) removedBefore += 1;
+      history.splice(index, 1);
+    }
+    historyIndex -= removedBefore;
+    if (historyIndex >= history.length) historyIndex = history.length - 1;
+    if (historyIndex < 0) historyIndex = -1;
+    syncHistoryMenu();
+  }
+
+  function showClosedDocument() {
+    window.api.closeActiveFile();
+    showFolderWithoutDocument();
+    syncSession();
+    renderSidebar();
+  }
+
+  // When the active file is closed, show its nearest neighbour. Files that no
+  // longer exist are dropped from the list rather than left as dead entries.
+  async function openNearestSessionFile(startIndex) {
+    while (sessionFiles.length > 0) {
+      const index = Math.min(startIndex, sessionFiles.length - 1);
+      const entry = sessionFiles[index];
+      const opened = await window.api.readFile(entry.filePath);
+      if (opened) {
+        history.splice(0);
+        historyIndex = -1;
+        syncHistoryMenu();
+        await navigateTo(opened);
+        return;
+      }
+      sessionFiles.splice(index, 1);
+    }
+    showClosedDocument();
+  }
+
+  async function closeSessionFile(entry) {
+    const index = sessionFiles.findIndex((candidate) => candidate.filePath === entry.filePath);
+    if (index === -1) return;
+    const wasActive = entry.filePath === activePath;
+    sessionFiles.splice(index, 1);
+    syncSession();
+    if (!wasActive) {
+      forgetHistoryPath(entry.filePath);
+      renderSidebar();
+      return;
+    }
+    window.api.closeActiveFile();
+    history.splice(0);
+    historyIndex = -1;
+    syncHistoryMenu();
+    if (sessionFiles.length === 0) {
+      showClosedDocument();
+      return;
+    }
+    await openNearestSessionFile(Math.min(index, sessionFiles.length - 1));
   }
 
   async function showDocument({ mode, filePath, relativePath, content }, { anchor = null, scrollTop = 0 } = {}) {
@@ -1256,6 +1324,12 @@
     history.splice(0);
     historyIndex = -1;
     syncHistoryMenu();
+    // A startup restore carries the previous session alongside the folder.
+    for (const entry of payload.session || []) {
+      if (entry && typeof entry.filePath === 'string') {
+        rememberSessionEntry(entry.filePath, entry.name || basename(entry.filePath));
+      }
+    }
     if (payload.document) {
       expandAncestors(payload.document.relativePath);
       pushHistoryEntry(payload.document);
@@ -1508,7 +1582,17 @@
         name.className = 'file-name';
         name.textContent = entry.name;
         name.title = entry.filePath;
-        li.append(dot, name);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'file-close';
+        close.textContent = '\u00D7';
+        close.title = `Close ${entry.name}`;
+        close.setAttribute('aria-label', `Close ${entry.name}`);
+        close.addEventListener('click', (event) => {
+          event.stopPropagation();
+          void closeSessionFile(entry);
+        });
+        li.append(dot, name, close);
         li.addEventListener('click', () => openEntry(entry));
         fileList.appendChild(li);
       });
