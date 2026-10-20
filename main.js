@@ -46,7 +46,39 @@ let activeSearchId = 0;
 // absolute paths, so opened-file search cannot become an arbitrary file reader.
 const openedPaths = new Set();
 
+// Paths handed to the app by Explorer, a shortcut, or a second instance. They
+// wait here until the renderer has loaded, then open one after another.
+const pendingOpenPaths = [];
+let rendererReady = false;
+let drainingOpenPaths = false;
+
+function commandLinePaths(argv) {
+  const args = app.isPackaged ? argv.slice(1) : argv.slice(2);
+  return args.filter((arg) => typeof arg === 'string' && arg.length > 0 && !arg.startsWith('-'));
+}
+
+function queueOpenPath(candidate) {
+  if (typeof candidate !== 'string' || candidate.length === 0) return;
+  const resolved = path.resolve(candidate);
+  if (!pendingOpenPaths.includes(resolved)) pendingOpenPaths.push(resolved);
+  if (rendererReady && mainWindow) void drainPendingOpenPaths();
+}
+
+async function drainPendingOpenPaths() {
+  if (!rendererReady || drainingOpenPaths || !mainWindow) return;
+  drainingOpenPaths = true;
+  try {
+    while (pendingOpenPaths.length > 0) {
+      const candidate = pendingOpenPaths.shift();
+      await openExternalPath(candidate);
+    }
+  } finally {
+    drainingOpenPaths = false;
+  }
+}
+
 function createWindow() {
+  rendererReady = false;
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -64,15 +96,27 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
   mainWindow.on('closed', () => {
+    rendererReady = false;
     fileWatcher.stop();
     treeWatcher.stop();
     cancelActiveSearch();
     mainWindow = null;
   });
 
-  // The renderer is ready once the page has loaded; reopening the last folder
-  // here also covers a manual reload, which starts from a fresh renderer.
+  // A reload starts a fresh renderer; hold external opens until it has loaded.
+  mainWindow.webContents.on('did-start-loading', () => {
+    rendererReady = false;
+  });
+
+  // The renderer is ready once the page has loaded. A file handed in on the
+  // command line takes precedence over the saved folder; otherwise reopening
+  // the last folder here also covers a manual reload.
   mainWindow.webContents.on('did-finish-load', async () => {
+    rendererReady = true;
+    if (pendingOpenPaths.length > 0) {
+      await drainPendingOpenPaths();
+      return;
+    }
     if (!settings.reopenLastFolder || !settings.lastFolder) return;
     const opened = await openFolder(settings.lastFolder);
     if (opened && mainWindow) mainWindow.webContents.send('folder:opened', opened);
@@ -283,6 +327,45 @@ async function openPath(candidate) {
   } catch {
     return { status: 'missing', displayPath: path.basename(filePath) };
   }
+}
+
+async function reportOpenFailure(candidate, status) {
+  if (!mainWindow) return;
+  const name = path.basename(candidate);
+  const message =
+    status === 'unsupported'
+      ? `${name} is not a supported Markdown or text file.`
+      : `Could not open ${name}.`;
+  await dialog.showMessageBox(mainWindow, {
+    type: 'error',
+    title: 'Could not open',
+    message
+  });
+}
+
+// Explorer, shortcut drops, and second instances all arrive as a path. Folders
+// open in folder mode; files become the active document in the open window.
+async function openExternalPath(candidate) {
+  const info = await fs.stat(candidate).catch(() => null);
+  if (!info) {
+    await reportOpenFailure(candidate, 'missing');
+    return;
+  }
+  if (info.isDirectory()) {
+    const opened = await openFolder(candidate);
+    if (!opened) {
+      await reportOpenFailure(candidate, 'failed');
+      return;
+    }
+    if (mainWindow) mainWindow.webContents.send('folder:opened', opened);
+    return;
+  }
+  const opened = await openPath(candidate);
+  if (opened.status === 'ok') {
+    if (mainWindow) mainWindow.webContents.send('file:opened', opened.document);
+    return;
+  }
+  await reportOpenFailure(candidate, opened.status);
 }
 
 function readmeAtRoot(files) {
@@ -834,25 +917,56 @@ function buildMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-app.whenReady().then(async () => {
-  await loadSettings();
-  registerFileProtocol();
-  buildMenu();
-  createWindow();
+for (const candidate of commandLinePaths(process.argv)) {
+  queueOpenPath(candidate);
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  // A second launch (including dropping a file on Glance's icon) forwards its
+  // path to the window that is already open instead of starting a second copy.
+  app.on('second-instance', (_event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+    for (const candidate of commandLinePaths(argv)) {
+      queueOpenPath(candidate);
+    }
+    if (!mainWindow && app.isReady()) createWindow();
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  // macOS sends Finder opens (Open With, Dock drops) through this event rather
+  // than argv. It can fire before the app is ready.
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault();
+    queueOpenPath(filePath);
+  });
 
-app.on('before-quit', () => {
-  fileWatcher.stop();
-  treeWatcher.stop();
-});
+  app.whenReady().then(async () => {
+    await loadSettings();
+    registerFileProtocol();
+    buildMenu();
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    fileWatcher.stop();
+    treeWatcher.stop();
+  });
+}
 
 // --- IPC: renderer asks main to open a dialog + read the file ---
 ipcMain.handle('dialog:openFile', () => openFileDialog());

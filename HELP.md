@@ -8,6 +8,9 @@ a browsable tree, and renders the document without sending it anywhere.
 - Use **File > Open File...** (`Ctrl/Cmd+O`) to pick one or more Markdown files.
 - Use **File > Open Folder...** (`Ctrl/Cmd+Shift+E`) to open a project folder.
 - Drag a file or folder anywhere onto the window.
+- On Windows, right-click a Markdown file and choose **Open with Glance**, or
+  drop a file or folder onto the Glance icon. If Glance is already open, the
+  path opens in the existing window.
 - Click a file in the sidebar, or follow a relative link inside a document.
 
 When a folder opens, its root `README.md` is shown automatically if it has one.
@@ -115,9 +118,11 @@ to their usual desktop application.
 
 ## Supported files
 
-Glance opens `.md`, `.markdown`, `.mdown`, and `.txt` files. A single file's
-folder becomes the boundary for its relative images and links; a folder stays
-the boundary while it is open.
+Glance opens `.md`, `.markdown`, `.mdown`, and `.txt` files. The Windows
+installer registers the three Markdown extensions for **Open with Glance**;
+`.txt` files can still be opened from inside the app. A single file's folder
+becomes the boundary for its relative images and links; a folder stays the
+boundary while it is open.
 
 ## Keyboard shortcuts
 
@@ -152,6 +157,9 @@ the boundary while it is open.
 - **The folder tree is stale.** It refreshes after a short delay when files
   change. Use **File > Open Folder...** again if a network drive did not report
   the change.
+- **Open with Glance is missing.** Reinstall a Windows build from 0.1.3 or
+  later; development launches do not register file associations. Windows can
+  still ask which app to use the first time, so choose Glance there.
 
 ## Privacy
 

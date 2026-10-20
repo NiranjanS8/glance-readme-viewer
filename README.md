@@ -8,6 +8,9 @@ chrome, flat surfaces, one accent color. No card-and-shadow dashboard look.
 
 - Open Markdown and text files (`.md`, `.markdown`, `.mdown`, `.txt`) via
   **File > Open** (`Ctrl/Cmd+O`), **drag-and-drop**, or a multi-file selection
+- Windows Explorer integration: **Open with Glance** for `.md`, `.markdown`,
+  and `.mdown`, plus drag a file or folder onto the Glance icon to open it in
+  the existing window instead of starting another copy
 - Open an entire folder (`Ctrl/Cmd+Shift+E`) with a browsable sidebar tree,
   root `README.md` auto-open, and folder-scoped relative links and images
 - GitHub-flavored rendering: tables, strikethrough, task lists, autolinks
@@ -49,7 +52,9 @@ npm run build
 ```
 
 Packages via electron-builder into `dist/` (Windows: NSIS installer,
-macOS: DMG, Linux: AppImage). Local builds are **unsigned** — see
+macOS: DMG, Linux: AppImage). The Windows installer registers `.md`,
+`.markdown`, and `.mdown` under **Open with Glance**; development launches do
+not register file associations. Local builds are **unsigned** — see
 `signAndEditExecutable` in `package.json`. For public releases, sign with
 your own certificate and remove that flag.
 
@@ -65,6 +70,7 @@ your own certificate and remove that flag.
 ├── HELP.md       # Built-in help, opened from Help > Help (F1)
 ├── theme-init.js # Applies the stored/OS theme before first paint (no flash)
 ├── style.css     # Design tokens, themes, GitHub-style markdown styling
+├── build/        # NSIS installer include for Open with Glance
 ├── vendor/       # highlight.js browser bundle + self-hosted webfonts (see notes below)
 ├── assets/       # App icon
 └── SAMPLE.md     # Demo file exercising the render pipeline
