@@ -3,9 +3,10 @@
   'use strict';
 
   const THEME_KEY = 'glance-theme';
-  const ALLOWED_EXTS = ['.md', '.markdown', '.mdown', '.txt'];
   const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
   const TOC_LEVELS = 'h1, h2, h3, h4'; // the outline stops at H4
+  // Relative images are served by main through this scheme, never file://.
+  const IMAGE_PREFIX = 'glance-file://local/';
 
   const html = document.documentElement;
   const filenameEl = document.getElementById('filename');
@@ -13,6 +14,7 @@
   const emptyState = document.getElementById('emptyState');
   const fileList = document.getElementById('fileList');
   const fileListEmpty = document.getElementById('fileListEmpty');
+  const sidebarSection = document.getElementById('sidebarSection');
   const themeToggle = document.getElementById('themeToggle');
   const openFileBtn = document.getElementById('openFileBtn');
   const emptyOpenBtn = document.getElementById('emptyOpenBtn');
@@ -22,9 +24,15 @@
   const readingPane = document.getElementById('readingPane');
   const dropHint = document.getElementById('dropHint');
   const staleNotice = document.getElementById('staleNotice');
+  const linkNotice = document.getElementById('linkNotice');
 
   const sessionFiles = []; // [{ filePath, name }]
+  const treeExpanded = new Set(); // folder paths the reader left open
+  const history = []; // [{ filePath, scrollTop }]
+  let historyIndex = -1;
   let activePath = null;
+  let current = null; // { mode, filePath, relativePath }
+  let folder = null; // { name, root, files, truncated, limit } while a folder is open
 
   // ---------- Markdown setup ----------
 
@@ -96,12 +104,6 @@
     return p.split(/[\\/]/).pop() || p;
   }
 
-  function hasAllowedExt(p) {
-    if (typeof p !== 'string') return false;
-    const lower = p.toLowerCase();
-    return ALLOWED_EXTS.some((ext) => lower.endsWith(ext));
-  }
-
   // LLMs and rich-text editors often emit "smart" dashes (—, –)
   // where GFM requires ASCII hyphens. The usual casualty is the
   // table delimiter row (|—|—|), which then renders as raw text
@@ -141,8 +143,8 @@
   }
 
   function toggleTheme() {
-    const current = html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-    applyTheme(current === 'dark' ? 'light' : 'dark');
+    const theme = html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    applyTheme(theme === 'dark' ? 'light' : 'dark');
   }
 
   // theme-init.js resolved stored-or-OS before first paint; persist that
@@ -161,6 +163,28 @@
       // a malformed escape is not worth failing a click over
     }
     return markdownBody.querySelector(`[id="${CSS.escape(decoded)}"]`);
+  }
+
+  function encodeSegments(relativePath) {
+    return relativePath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+  }
+
+  // Absolute URLs are left alone; a leading slash means "from the folder
+  // root", everything else is relative to the open document. ".." segments are
+  // normalized by the URL parser and checked again by main's guard.
+  function imageUrl(source) {
+    if (!source || source.startsWith('//')) return null;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return null;
+    const trimmed = source.replace(/\\/g, '/');
+    if (trimmed.startsWith('/')) return IMAGE_PREFIX + encodeSegments(trimmed.slice(1));
+    const relativePath = current ? current.relativePath : '';
+    const directory = relativePath.includes('/')
+      ? relativePath.slice(0, relativePath.lastIndexOf('/') + 1)
+      : '';
+    return IMAGE_PREFIX + encodeSegments(directory + trimmed);
   }
 
   function renderMarkdown(source) {
@@ -186,15 +210,17 @@
       block.classList.add('hljs');
     });
 
-    // Links: route everything http(s)/mailto through the OS browser.
+    // Links: http(s)/mailto go to the OS browser, #anchors stay in the pane,
+    // and anything relative is resolved by main against the allowed root.
     markdownBody.querySelectorAll('a[href]').forEach((anchor) => {
       const href = anchor.getAttribute('href');
-      if (/^(https?:|mailto:)/i.test(href)) {
+      if (/^(https?:|mailto:)/i.test(href) || href.startsWith('//')) {
+        const target = href.startsWith('//') ? `https:${href}` : href;
         anchor.setAttribute('target', '_blank');
         anchor.setAttribute('rel', 'noopener noreferrer');
         anchor.addEventListener('click', (event) => {
           event.preventDefault();
-          window.api.openExternal(href);
+          window.api.openExternal(target);
         });
       } else if (href.startsWith('#')) {
         // In-document anchors jump inside the reading pane; they must never
@@ -206,6 +232,11 @@
         });
       } else if (/^(javascript:|data:|vbscript:)/i.test(href)) {
         anchor.removeAttribute('href');
+      } else {
+        anchor.addEventListener('click', (event) => {
+          event.preventDefault();
+          followLocalLink(href);
+        });
       }
     });
 
@@ -215,71 +246,232 @@
       box.setAttribute('tabindex', '-1');
     });
 
-    // Local images: allow relative paths Electron can resolve is out of v1
-    // scope, so just mark broken ones quietly instead of navigating.
+    // Relative images load from disk through main's guard; broken ones are
+    // hidden quietly instead of leaving a browser placeholder.
     markdownBody.querySelectorAll('img').forEach((img) => {
+      const source = img.getAttribute('src');
+      if (source) {
+        if (/^file:/i.test(source)) {
+          img.removeAttribute('src');
+        } else {
+          const resolved = imageUrl(source);
+          if (resolved) img.setAttribute('src', resolved);
+        }
+      }
       img.setAttribute('loading', 'lazy');
       img.addEventListener('error', () => img.classList.add('img-broken'));
     });
   }
 
-  async function openEntry(entry) {
-    const opened = await window.api.readFile(entry.filePath);
-    if (opened) showFile(opened);
+  // ---------- Notices ----------
+
+  // A deleted file keeps its last render on screen, with the notice above it.
+  function setStaleNotice(visible) {
+    staleNotice.hidden = !visible;
   }
 
-  function renderSidebar() {
-    fileList.querySelectorAll('li[data-path]').forEach((li) => li.remove());
-    if (sessionFiles.length === 0) {
-      fileListEmpty.hidden = false;
+  // The quiet line above the document: why a click did nothing.
+  function setLinkNotice(message) {
+    if (!message) {
+      linkNotice.hidden = true;
+      linkNotice.textContent = '';
       return;
     }
-    fileListEmpty.hidden = true;
-    sessionFiles.forEach((entry) => {
-      const li = document.createElement('li');
-      li.dataset.path = entry.filePath;
-      li.className = 'file-item' + (entry.filePath === activePath ? ' active' : '');
-      const dot = document.createElement('span');
-      dot.className = 'file-dot';
-      dot.textContent = entry.filePath === activePath ? '\u25CF' : '\u25CB';
-      const name = document.createElement('span');
-      name.className = 'file-name';
-      name.textContent = entry.name;
-      name.title = entry.filePath;
-      li.append(dot, name);
-      li.addEventListener('click', () => openEntry(entry));
-      fileList.appendChild(li);
+    linkNotice.textContent = message;
+    linkNotice.hidden = false;
+  }
+
+  function linkNoticeText({ status, displayPath }) {
+    const shown = displayPath || 'link';
+    if (status === 'outside') return `Link outside the opened folder: ${shown}`;
+    if (status === 'unsupported') return `Not a file: ${shown}`;
+    if (status === 'failed') return `Could not open: ${shown}`;
+    return `Linked file not found: ${shown}`;
+  }
+
+  // ---------- History ----------
+  // The renderer owns the stack because only it knows the reading position.
+  // Entries are re-read from disk on the way back, so edits show up and a file
+  // that disappeared is reported instead of restored stale.
+
+  function syncHistoryMenu() {
+    window.api.setHistoryState({
+      canBack: historyIndex > 0,
+      canForward: historyIndex >= 0 && historyIndex < history.length - 1
     });
   }
 
-  // Ctrl/Cmd+1-9 counts down the sidebar list, so 1 is the newest entry.
-  function selectFileAt(position) {
-    const entry = sessionFiles[position - 1];
-    if (entry) openEntry(entry);
+  function saveHistoryScroll() {
+    const entry = history[historyIndex];
+    if (entry && entry.filePath === activePath) entry.scrollTop = readingPane.scrollTop;
   }
 
-  function showFile({ filePath, content }) {
+  function pushHistoryEntry(document) {
+    saveHistoryScroll();
+    history.splice(historyIndex + 1);
+    history.push({ filePath: document.filePath, scrollTop: 0 });
+    historyIndex = history.length - 1;
+    syncHistoryMenu();
+  }
+
+  async function goTo(index) {
+    if (index < 0 || index >= history.length || index === historyIndex) return;
+    const entry = history[index];
+    const opened = await window.api.readFile(entry.filePath);
+    if (!opened) {
+      setLinkNotice(`File no longer exists on disk: ${basename(entry.filePath)}`);
+      return;
+    }
+    saveHistoryScroll();
+    historyIndex = index;
+    syncHistoryMenu();
+    showDocument(opened, { scrollTop: entry.scrollTop });
+  }
+
+  function goBack() {
+    goTo(historyIndex - 1);
+  }
+
+  function goForward() {
+    goTo(historyIndex + 1);
+  }
+
+  // ---------- Documents ----------
+
+  async function navigateTo(document, { anchor = null, scrollTop = 0, push = true } = {}) {
+    if (!document || !document.filePath) return;
+    if (push) pushHistoryEntry(document);
+    else saveHistoryScroll();
+    showDocument(document, { anchor, scrollTop });
+  }
+
+  async function openEntry(entry) {
+    const opened = await window.api.readFile(entry.filePath);
+    if (opened) await navigateTo(opened);
+  }
+
+  async function openTreeFile(relativePath) {
+    const result = await window.api.openFolderFile(relativePath);
+    if (!result) return;
+    if (result.status === 'ok') {
+      await navigateTo(result.document);
+      return;
+    }
+    setLinkNotice(linkNoticeText(result));
+  }
+
+  async function followLocalLink(href) {
+    const result = await window.api.followLink(href);
+    if (!result) return;
+    if (result.status === 'ok') {
+      await navigateTo(result.document, { anchor: result.anchor });
+      return;
+    }
+    if (result.status === 'external') {
+      setLinkNotice(null);
+      return;
+    }
+    setLinkNotice(linkNoticeText(result));
+  }
+
+  function rememberSessionEntry(filePath, name) {
+    const index = sessionFiles.findIndex((entry) => entry.filePath === filePath);
+    if (index === -1) {
+      sessionFiles.unshift({ filePath, name });
+      return;
+    }
+    // move to top, keep click order predictable
+    const [entry] = sessionFiles.splice(index, 1);
+    sessionFiles.unshift(entry);
+  }
+
+  function showDocument({ mode, filePath, relativePath, content }, { anchor = null, scrollTop = 0 } = {}) {
     if (!filePath) return;
     const name = basename(filePath);
     activePath = filePath;
-    if (!sessionFiles.some((f) => f.filePath === filePath)) {
-      sessionFiles.unshift({ filePath, name });
-    } else {
-      // move to top, keep click order predictable
-      const idx = sessionFiles.findIndex((f) => f.filePath === filePath);
-      const [entry] = sessionFiles.splice(idx, 1);
-      sessionFiles.unshift(entry);
-    }
+    current = { mode, filePath, relativePath };
+    // A file opened outside the folder leaves folder mode behind.
+    if (mode === 'single') folder = null;
+    rememberSessionEntry(filePath, name);
     filenameEl.textContent = name;
     window.api.setTitle(name);
     document.title = `${name} — Glance`;
-    renderSidebar();
+
     renderMarkdown(content);
     buildToc();
     emptyState.hidden = true;
     markdownBody.hidden = false;
     setStaleNotice(false);
+    setLinkNotice(null);
+    if (mode === 'folder' && relativePath) expandAncestors(relativePath);
+    renderSidebar({ reveal: true });
+
     readingPane.scrollTop = 0;
+    const target = anchor ? anchorTarget(anchor) : null;
+    if (target) {
+      scrollToAnchor(target);
+      return;
+    }
+    readingPane.scrollTop = scrollTop;
+    // A restored position should light the entry the reader is actually at,
+    // not whichever heading the fresh build defaulted to.
+    syncTocActive();
+  }
+
+  // A folder with no README opens no document: the tree is live and the
+  // reading pane keeps its empty state.
+  function showFolderWithoutDocument() {
+    activePath = null;
+    current = null;
+    markdownBody.innerHTML = '';
+    markdownBody.hidden = true;
+    emptyState.hidden = false;
+    setStaleNotice(false);
+    setLinkNotice(null);
+    readingPane.scrollTop = 0;
+    buildToc();
+    // With no document open, the folder is what the window is showing.
+    const heading = folder ? folder.name : '';
+    filenameEl.textContent = heading || 'README Viewer';
+    window.api.setTitle(heading);
+    document.title = heading ? `${heading} — Glance` : 'Glance';
+  }
+
+  function applyFolderOpened(payload) {
+    if (!payload) return;
+    folder = {
+      name: payload.name,
+      root: payload.root,
+      files: payload.files || [],
+      truncated: Boolean(payload.truncated),
+      limit: payload.limit || 0
+    };
+    treeExpanded.clear();
+    history.splice(0);
+    historyIndex = -1;
+    syncHistoryMenu();
+    if (payload.document) {
+      expandAncestors(payload.document.relativePath);
+      pushHistoryEntry(payload.document);
+      showDocument(payload.document);
+      return;
+    }
+    showFolderWithoutDocument();
+    renderSidebar();
+  }
+
+  // A rescan replaces the tree but keeps what the reader expanded and where
+  // the sidebar was scrolled to.
+  function applyFolderChanged(payload) {
+    if (!folder || !payload) return;
+    folder = {
+      ...folder,
+      name: payload.name,
+      files: payload.files || [],
+      truncated: Boolean(payload.truncated),
+      limit: payload.limit || 0
+    };
+    renderSidebar();
   }
 
   // Live reload: main pushes fresh contents when the open file changes on
@@ -295,15 +487,262 @@
     readingPane.scrollTop = Math.min(previousTop, maxTop);
   }
 
-  // A deleted file keeps its last render on screen, with the notice above it.
-  function setStaleNotice(visible) {
-    staleNotice.hidden = !visible;
-  }
-
   async function handleOpenRequest() {
     const opened = await window.api.openFileDialog();
-    if (opened) showFile(opened);
+    if (opened) applyFreshDocument(opened);
   }
+
+  // Menu and dialog opens start a new stack; moving inside a folder or through
+  // a link pushes onto the current one.
+  function applyFreshDocument(document) {
+    history.splice(0);
+    historyIndex = -1;
+    pushHistoryEntry(document);
+    showDocument(document);
+  }
+
+  // ---------- Sidebar ----------
+
+  function updateSidebarLabel() {
+    sidebarSection.textContent = folder ? folder.name : 'open files';
+    sidebarSection.title = folder ? folder.root : '';
+  }
+
+  function showSidebarEmpty(message) {
+    fileListEmpty.textContent = message;
+    fileListEmpty.hidden = false;
+  }
+
+  function relativeFolders(relativePath) {
+    const parts = relativePath.split('/');
+    const folders = [];
+    let prefix = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      prefix = prefix ? `${prefix}/${parts[i]}` : parts[i];
+      folders.push(prefix);
+    }
+    return folders;
+  }
+
+  // Following a link into a collapsed folder reveals the file it landed on.
+  function expandAncestors(relativePath) {
+    relativeFolders(relativePath).forEach((relativeFolder) => treeExpanded.add(relativeFolder));
+  }
+
+  function buildTree(files) {
+    const root = { children: new Map() };
+    for (const relativePath of files) {
+      const parts = relativePath.split('/');
+      let node = root;
+      let prefix = '';
+      parts.forEach((part, index) => {
+        prefix = prefix ? `${prefix}/${part}` : part;
+        const isFile = index === parts.length - 1;
+        let child = node.children.get(part);
+        if (!child) {
+          child = isFile
+            ? { type: 'file', name: part, path: prefix }
+            : { type: 'dir', name: part, path: prefix, children: new Map() };
+          node.children.set(part, child);
+        }
+        node = child;
+      });
+    }
+    return root;
+  }
+
+  function compareTreeNames(a, b) {
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+  }
+
+  function treeRow(node, depth) {
+    const isDir = node.type === 'dir';
+    const isActive = !isDir && current !== null && node.path === current.relativePath;
+    const row = document.createElement('li');
+    row.className = 'file-item' + (isActive ? ' active' : '');
+    row.dataset.path = node.path;
+    row.dataset.type = node.type;
+    row.dataset.depth = String(depth);
+    row.style.paddingLeft = `${8 + (depth - 1) * 12}px`;
+    row.tabIndex = -1;
+    row.title = node.path;
+    row.setAttribute('role', 'treeitem');
+    row.setAttribute('aria-level', String(depth));
+
+    const marker = document.createElement('span');
+    if (isDir) {
+      const expanded = treeExpanded.has(node.path);
+      marker.className = 'tree-chevron';
+      marker.textContent = expanded ? '\u25BE' : '\u25B8';
+      marker.setAttribute('aria-hidden', 'true');
+      row.setAttribute('aria-expanded', String(expanded));
+    } else {
+      marker.className = 'file-dot';
+      marker.textContent = isActive ? '\u25CF' : '\u25CB';
+      if (isActive) row.setAttribute('aria-selected', 'true');
+    }
+
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.textContent = node.name;
+
+    row.append(marker, name);
+    row.addEventListener('click', () => {
+      if (isDir) toggleFolder(node.path);
+      else openTreeFile(node.path);
+    });
+    return row;
+  }
+
+  function appendTreeRows(node, depth, rows) {
+    const children = Array.from(node.children.values());
+    const dirs = children.filter((child) => child.type === 'dir').sort(compareTreeNames);
+    const files = children.filter((child) => child.type === 'file').sort(compareTreeNames);
+    for (const child of dirs) {
+      rows.push(treeRow(child, depth));
+      if (treeExpanded.has(child.path)) appendTreeRows(child, depth + 1, rows);
+    }
+    for (const child of files) rows.push(treeRow(child, depth));
+    return rows;
+  }
+
+  function treeRows() {
+    return Array.from(fileList.querySelectorAll('li[data-path]'));
+  }
+
+  function toggleFolder(relativePath) {
+    if (treeExpanded.has(relativePath)) treeExpanded.delete(relativePath);
+    else treeExpanded.add(relativePath);
+    renderSidebar({ focusPath: relativePath });
+  }
+
+  function focusTreeRow(row) {
+    if (!row) return;
+    treeRows().forEach((candidate) => {
+      candidate.tabIndex = -1;
+    });
+    row.tabIndex = 0;
+    row.focus();
+  }
+
+  function revealActiveRow() {
+    if (!current) return;
+    const row = treeRows().find((candidate) => candidate.dataset.path === current.relativePath);
+    if (row) row.scrollIntoView({ block: 'nearest' });
+  }
+
+  function renderSidebar({ reveal = false, focusPath = null } = {}) {
+    const previousScroll = fileList.scrollTop;
+    const active = document.activeElement;
+    const focusedRow =
+      active instanceof HTMLElement && fileList.contains(active)
+        ? active.closest('li[data-path]')
+        : null;
+    const previousFocus = focusedRow ? focusedRow.dataset.path : null;
+
+    fileList.querySelectorAll('li[data-path], li.tree-note').forEach((row) => row.remove());
+    updateSidebarLabel();
+    fileList.setAttribute('role', folder ? 'tree' : 'list');
+
+    if (folder) {
+      const rows = appendTreeRows(buildTree(folder.files), 1, []);
+      if (rows.length === 0) {
+        showSidebarEmpty('no markdown files');
+      } else {
+        fileListEmpty.hidden = true;
+        rows.forEach((row) => fileList.appendChild(row));
+        if (folder.truncated) {
+          const note = document.createElement('li');
+          note.className = 'file-list-empty tree-note';
+          note.textContent = folder.limit
+            ? `first ${folder.limit} files shown`
+            : 'file list truncated';
+          fileList.appendChild(note);
+        }
+        const activeRow = rows.find((row) => row.classList.contains('active'));
+        (activeRow || rows[0]).tabIndex = 0;
+      }
+    } else if (sessionFiles.length === 0) {
+      showSidebarEmpty('nothing open yet');
+    } else {
+      fileListEmpty.hidden = true;
+      sessionFiles.forEach((entry) => {
+        const li = document.createElement('li');
+        li.dataset.path = entry.filePath;
+        li.className = 'file-item' + (entry.filePath === activePath ? ' active' : '');
+        const dot = document.createElement('span');
+        dot.className = 'file-dot';
+        dot.textContent = entry.filePath === activePath ? '\u25CF' : '\u25CB';
+        const name = document.createElement('span');
+        name.className = 'file-name';
+        name.textContent = entry.name;
+        name.title = entry.filePath;
+        li.append(dot, name);
+        li.addEventListener('click', () => openEntry(entry));
+        fileList.appendChild(li);
+      });
+    }
+
+    fileList.scrollTop = previousScroll;
+    const focusTarget = focusPath || previousFocus;
+    if (focusTarget && folder) {
+      const row = treeRows().find((candidate) => candidate.dataset.path === focusTarget);
+      if (row) focusTreeRow(row);
+    }
+    if (reveal) revealActiveRow();
+  }
+
+  // Ctrl/Cmd+1-9 counts down the sidebar list, so 1 is the newest entry.
+  function selectFileAt(position) {
+    const entry = sessionFiles[position - 1];
+    if (entry) openEntry(entry);
+  }
+
+  // Up/down walk the visible rows, left/right collapse and expand, Enter opens.
+  fileList.addEventListener('keydown', (event) => {
+    if (!folder) return;
+    const rows = treeRows();
+    if (rows.length === 0) return;
+    const index = rows.indexOf(document.activeElement);
+    if (index === -1) return;
+    const row = rows[index];
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      focusTreeRow(rows[Math.min(rows.length - 1, index + 1)]);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusTreeRow(rows[Math.max(0, index - 1)]);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      if (row.dataset.type !== 'dir') return;
+      if (!treeExpanded.has(row.dataset.path)) {
+        toggleFolder(row.dataset.path);
+        return;
+      }
+      const child = rows[index + 1];
+      if (child && Number(child.dataset.depth) === Number(row.dataset.depth) + 1) {
+        focusTreeRow(child);
+      }
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      if (row.dataset.type === 'dir' && treeExpanded.has(row.dataset.path)) {
+        toggleFolder(row.dataset.path);
+        return;
+      }
+      const depth = Number(row.dataset.depth);
+      for (let i = index - 1; i >= 0; i--) {
+        if (Number(rows[i].dataset.depth) === depth - 1) {
+          focusTreeRow(rows[i]);
+          return;
+        }
+      }
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (row.dataset.type === 'dir') toggleFolder(row.dataset.path);
+      else openTreeFile(row.dataset.path);
+    }
+  });
 
   // ---------- Table of contents ----------
 
@@ -465,14 +904,19 @@
   emptyOpenBtn.addEventListener('click', handleOpenRequest);
 
   window.api.onFileOpened((data) => {
-    if (data) showFile(data);
+    if (data) applyFreshDocument(data);
   });
+  window.api.onFolderOpened((data) => applyFolderOpened(data));
+  window.api.onFolderChanged((data) => applyFolderChanged(data));
   window.api.onFileChanged((data) => {
     if (data) applyLiveUpdate(data);
   });
   window.api.onFileMissing((data) => {
     if (data && data.filePath === activePath) setStaleNotice(true);
   });
+  window.api.onHistoryBack(() => goBack());
+  window.api.onHistoryForward(() => goForward());
+  syncHistoryMenu();
   window.api.onToggleTheme(() => toggleTheme());
   window.api.onToggleSidebar(() => toggleSidebar());
   window.api.onSelectFile((position) => selectFileAt(position));
@@ -525,8 +969,8 @@
     const files = e.dataTransfer && e.dataTransfer.files;
     if (!files || files.length === 0) return;
     const filePath = window.api.getPathForFile(files[0]);
-    if (!filePath || !hasAllowedExt(filePath)) return;
-    const opened = await window.api.readFile(filePath);
-    if (opened) showFile(opened);
+    if (!filePath) return;
+    // A dropped folder takes over the tree; a dropped file opens one document.
+    await window.api.openDroppedPath(filePath);
   });
 })();

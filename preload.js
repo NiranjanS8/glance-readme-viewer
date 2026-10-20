@@ -9,6 +9,47 @@ contextBridge.exposeInMainWorld('api', {
   // Reads a known path (used for drag-and-drop where renderer only has a path string).
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
 
+  // A dropped path can be a file or a folder; main decides and pushes the
+  // result as 'file:opened' or 'folder:opened'.
+  openDroppedPath: (filePath) => ipcRenderer.invoke('path:open', filePath),
+
+  // Opens a file picked from the folder tree, by path relative to the folder.
+  openFolderFile: (relativePath) => ipcRenderer.invoke('folder:file', relativePath),
+
+  // Follows a relative link from the open document: opens another document,
+  // hands a non-Markdown file to the OS, or explains why it did neither.
+  followLink: (href) => ipcRenderer.invoke('link:follow', href),
+
+  // Fired when a folder was opened (dialog, drop or last-folder restore),
+  // carrying the tree and, when one exists, the root README.
+  onFolderOpened: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('folder:opened', listener);
+    return () => ipcRenderer.removeListener('folder:opened', listener);
+  },
+
+  // Fired after a debounced rescan when files were added/removed/renamed.
+  onFolderChanged: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('folder:changed', listener);
+    return () => ipcRenderer.removeListener('folder:changed', listener);
+  },
+
+  // Back/forward live in the renderer; main only enables the menu items.
+  setHistoryState: (state) => ipcRenderer.send('history:state', state),
+
+  onHistoryBack: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('history:back', listener);
+    return () => ipcRenderer.removeListener('history:back', listener);
+  },
+
+  onHistoryForward: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('history:forward', listener);
+    return () => ipcRenderer.removeListener('history:forward', listener);
+  },
+
   // Real filesystem path behind a dropped File. The non-standard File.path
   // was removed in Electron 32, so dropped files carry no path otherwise.
   getPathForFile: (file) => webUtils.getPathForFile(file),

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https: glance-file:;" />
   <title>Glance</title>
   <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./vendor/fonts.css" />
@@ -16,7 +16,7 @@
         <span>glance</span>
         <button class="icon-btn" id="toggleSidebarBtn" type="button" title="Collapse sidebar (Ctrl+B)">&#9703;</button>
       </div>
-      <div class="sidebar-section">open files</div>
+      <div class="sidebar-section" id="sidebarSection">open files</div>
       <ul class="file-list" id="fileList">
         <li class="file-list-empty" id="fileListEmpty">nothing open yet</li>
       </ul>
@@ -33,7 +33,8 @@
 
       <div class="pane">
         <main class="reading" id="readingPane">
-          <div class="stale-notice" id="staleNotice" hidden>File no longer exists on disk</div>
+          <div class="notice" id="staleNotice" hidden>File no longer exists on disk</div>
+          <div class="notice" id="linkNotice" hidden></div>
           <div class="empty-state" id="emptyState">
             <p class="empty-title">No file open</p>
             <p class="empty-body">Drag a .md file here or use File &gt; Open (Ctrl/&#8984;+O)</p>

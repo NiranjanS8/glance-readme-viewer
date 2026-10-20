@@ -89,6 +89,9 @@ body {
   color: var(--text-muted);
   padding: 14px 16px 6px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .file-list {
@@ -126,6 +129,8 @@ body {
   color: var(--accent);
   font-size: 10px;
   flex-shrink: 0;
+  width: 10px;
+  text-align: center;
 }
 
 .file-item:not(.active) .file-dot { color: var(--text-muted); }
@@ -133,6 +138,26 @@ body {
 .file-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Folder tree: folders first, a fixed indent per level (set inline), no lines
+   and no icons — the chevron is a plain character that swaps on expand. */
+.tree-chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+
+.file-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.tree-note {
+  font-size: 11px;
+  padding: 8px 8px 4px;
 }
 
 /* ---------- Main / header ---------- */
@@ -260,17 +285,19 @@ body.dragging .reading {
   margin: 0 0 20px;
 }
 
-/* Live reload notice: hairline and quiet, aligned with the reading column. */
-.stale-notice {
+/* Inline notice: hairline and quiet, aligned with the reading column. Used by
+   live reload (file gone) and by links that could not be followed. */
+.notice {
   max-width: 720px;
   margin: 0 auto 24px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
-.stale-notice[hidden] { display: none; }
+.notice[hidden] { display: none; }
 
 /* ---------- Contents ---------- */
 
