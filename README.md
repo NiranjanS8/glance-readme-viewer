@@ -28,8 +28,8 @@ chrome, flat surfaces, one accent color. No card-and-shadow dashboard look.
   and `javascript:` URLs are stripped silently
 - Live reload, back/forward history, a contents rail, in-document find, and
   sidebar search across the open folder or session files
-- Session list in the sidebar with a close control on each file; Glance reopens
-  the last document and session on the next launch
+- Close control on each opened file in the folder tree and session list; Glance
+  reopens the last document and session on the next launch
 - Dark and light themes (`Ctrl/Cmd+T`), OS preference on first launch,
   persisted afterwards
 - Built-in help (`F1`) read from the bundled `HELP.md`

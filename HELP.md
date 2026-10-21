@@ -20,9 +20,9 @@ open with an empty reading pane until you choose a file.
 ## Move around
 
 - The sidebar holds the folder tree, or the files opened during this session.
-  Use the `x` on an opened file to close it from the session without closing the
-  window. While **View > Reopen Last Folder** is on, Glance remembers the last
-  document and opened files for the next launch.
+  Opened files keep an `x` in either view; use it to close the file from the
+  session without closing the window. While **View > Reopen Last Folder** is on,
+  Glance remembers the last document and opened files for the next launch.
 - **View > Back** and **View > Forward** move through the documents opened in
   this session.
 - The contents rail follows the headings in the open document. Click an entry

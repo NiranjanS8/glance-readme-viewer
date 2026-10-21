@@ -1217,6 +1217,20 @@
     showClosedDocument();
   }
 
+  function createFileCloseButton(entry) {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'file-close';
+    close.textContent = '\u00D7';
+    close.title = `Close ${entry.name}`;
+    close.setAttribute('aria-label', `Close ${entry.name}`);
+    close.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void closeSessionFile(entry);
+    });
+    return close;
+  }
+
   async function closeSessionFile(entry) {
     const index = sessionFiles.findIndex((candidate) => candidate.filePath === entry.filePath);
     if (index === -1) return;
@@ -1460,7 +1474,21 @@
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
   }
 
-  function treeRow(node, depth) {
+  // The folder tree replaces the opened-files list, but opened files still need
+  // their close controls. Match session paths back to their tree-relative paths.
+  function openedTreeEntries() {
+    if (!folder) return new Map();
+    const root = folder.root.replace(/[\\/]+$/, '').replace(/\\/g, '/');
+    const entries = new Map();
+    for (const entry of sessionFiles) {
+      const filePath = entry.filePath.replace(/\\/g, '/');
+      if (!filePath.startsWith(`${root}/`)) continue;
+      entries.set(filePath.slice(root.length + 1), entry);
+    }
+    return entries;
+  }
+
+  function treeRow(node, depth, openedEntries) {
     const isDir = node.type === 'dir';
     const isActive = !isDir && current !== null && node.path === current.relativePath;
     const row = document.createElement('li');
@@ -1492,6 +1520,10 @@
     name.textContent = node.name;
 
     row.append(marker, name);
+    if (!isDir) {
+      const entry = openedEntries.get(node.path);
+      if (entry) row.append(createFileCloseButton(entry));
+    }
     row.addEventListener('click', () => {
       if (isDir) toggleFolder(node.path);
       else openTreeFile(node.path);
@@ -1499,15 +1531,15 @@
     return row;
   }
 
-  function appendTreeRows(node, depth, rows) {
+  function appendTreeRows(node, depth, rows, openedEntries) {
     const children = Array.from(node.children.values());
     const dirs = children.filter((child) => child.type === 'dir').sort(compareTreeNames);
     const files = children.filter((child) => child.type === 'file').sort(compareTreeNames);
     for (const child of dirs) {
-      rows.push(treeRow(child, depth));
-      if (treeExpanded.has(child.path)) appendTreeRows(child, depth + 1, rows);
+      rows.push(treeRow(child, depth, openedEntries));
+      if (treeExpanded.has(child.path)) appendTreeRows(child, depth + 1, rows, openedEntries);
     }
-    for (const child of files) rows.push(treeRow(child, depth));
+    for (const child of files) rows.push(treeRow(child, depth, openedEntries));
     return rows;
   }
 
@@ -1550,7 +1582,7 @@
     fileList.setAttribute('role', folder ? 'tree' : 'list');
 
     if (folder) {
-      const rows = appendTreeRows(buildTree(folder.files), 1, []);
+      const rows = appendTreeRows(buildTree(folder.files), 1, [], openedTreeEntries());
       if (rows.length === 0) {
         showSidebarEmpty('no markdown files');
       } else {
@@ -1582,17 +1614,7 @@
         name.className = 'file-name';
         name.textContent = entry.name;
         name.title = entry.filePath;
-        const close = document.createElement('button');
-        close.type = 'button';
-        close.className = 'file-close';
-        close.textContent = '\u00D7';
-        close.title = `Close ${entry.name}`;
-        close.setAttribute('aria-label', `Close ${entry.name}`);
-        close.addEventListener('click', (event) => {
-          event.stopPropagation();
-          void closeSessionFile(entry);
-        });
-        li.append(dot, name, close);
+        li.append(dot, name, createFileCloseButton(entry));
         li.addEventListener('click', () => openEntry(entry));
         fileList.appendChild(li);
       });
