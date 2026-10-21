@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F7F6F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1B1A18" media="(prefers-color-scheme: dark)" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none';"
+    />
+    <title>How to Open a .md File on Windows (5 Easy Ways)</title>
+    <meta
+      name="description"
+      content="Learn how to open a .md file on Windows with Notepad, VS Code, a browser, an online viewer, or Glance. Compare the tradeoffs of each method."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://glance.niranjans.tech/open-md-files-on-windows/" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/g-mark-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/g-mark-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/assets/g-mark-48.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/assets/g-mark-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/g-mark-180.png" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Glance" />
+    <meta property="og:url" content="https://glance.niranjans.tech/open-md-files-on-windows/" />
+    <meta property="og:title" content="How to Open a .md File on Windows (5 Easy Ways)" />
+    <meta
+      property="og:description"
+      content="Learn how to open a .md file on Windows with Notepad, VS Code, a browser, an online viewer, or Glance. Compare the tradeoffs of each method."
+    />
+    <meta property="og:image" content="https://glance.niranjans.tech/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Glance, a Markdown and README viewer for Windows." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="How to Open a .md File on Windows (5 Easy Ways)" />
+    <meta
+      name="twitter:description"
+      content="Learn how to open a .md file on Windows with Notepad, VS Code, a browser, an online viewer, or Glance. Compare the tradeoffs of each method."
+    />
+    <meta name="twitter:image" content="https://glance.niranjans.tech/assets/og.png" />
+    <meta name="twitter:image:alt" content="Glance, a Markdown and README viewer for Windows." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://glance.niranjans.tech/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "How to Open a .md File on Windows",
+            "item": "https://glance.niranjans.tech/open-md-files-on-windows/"
+          }
+        ]
+      }
+    </script>
+    <link
+      rel="preload"
+      href="/assets/fonts/source-serif-4-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/fonts/jetbrains-mono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/assets/fonts.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <div class="site-shell">
+      <aside class="rail" aria-label="Glance site">
+        <a class="brand" href="/" aria-label="Glance home">
+          <img src="/assets/g-mark-256.png" alt="" width="28" height="28" />
+          <span>glance</span>
+        </a>
+
+        <div class="rail-note">
+          <span>glance-readme-viewer</span>
+          <span class="rail-version" data-version>v0.1.3</span>
+        </div>
+
+        <nav class="file-nav" aria-label="Site pages">
+          <a class="file-link" href="/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Home</span>
+          </a>
+          <a class="file-link is-active" href="/open-md-files-on-windows/" aria-current="page">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Open .md files</span>
+          </a>
+          <a class="file-link" href="/what-is-readme-md/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>What is README.md?</span>
+          </a>
+          <a class="file-link" href="/markdown-viewer-windows/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Markdown viewer</span>
+          </a>
+          <a class="file-link" href="/changelog/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Changelog</span>
+          </a>
+        </nav>
+
+        <div class="rail-foot">
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            type="button"
+            aria-pressed="false"
+            aria-label="Switch to dark theme"
+          >
+            <span class="theme-icon" aria-hidden="true">◑</span>
+            <span class="theme-label">Dark</span>
+          </button>
+          <a
+            class="rail-link"
+            href="https://github.com/NiranjanS8/glance-readme-viewer"
+            rel="noreferrer"
+            >GitHub</a
+          >
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <div class="document-bar">
+          <div class="document-tab">
+            <span class="document-dot" aria-hidden="true"></span>
+            <span>open-md-files-on-windows.md</span>
+          </div>
+          <div class="document-meta">GLANCE / <span data-version>v0.1.3</span></div>
+        </div>
+
+        <section class="section page-section">
+          <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <a href="/">Home</a> /
+            <span aria-current="page">How to Open a .md File on Windows</span>
+          </nav>
+
+          <header class="page-head">
+            <h1>How to Open a .md File on Windows</h1>
+            <p class="page-intro">
+              A <code>.md</code> file is a Markdown document. Windows does not render Markdown by
+              default, so the best way to open one depends on whether you want to read the raw text
+              or see the formatted result. These five options cover quick edits, development work,
+              and dedicated reading.
+            </p>
+          </header>
+
+          <div class="page-body">
+            <h2>1. Notepad</h2>
+            <p>
+              Notepad is already on Windows. Right-click the file, choose <strong>Open with</strong>,
+              and select Notepad. It opens the file as plain text, which makes it useful for a quick
+              look at the source or a small edit.
+            </p>
+            <p>
+              <strong>Good for:</strong> quick text changes and checking the raw Markdown.
+              <strong>Tradeoff:</strong> headings, lists, tables, and code blocks stay unformatted,
+              so a longer document is harder to read.
+            </p>
+
+            <h2>2. Visual Studio Code preview</h2>
+            <p>
+              Open the file in Visual Studio Code and press <code>Ctrl+Shift+V</code> to open the
+              Markdown preview. The editor shows the source beside or next to a rendered view, which
+              is useful when you are writing and reading at the same time.
+            </p>
+            <p>
+              <strong>Good for:</strong> editing a README while checking the result. <strong>Tradeoff:</strong>
+              VS Code is an editor first. The preview is a tab inside a larger development tool, and
+              it is more than you need if you only want to read a file.
+            </p>
+
+            <h2>3. A web browser</h2>
+            <p>
+              You can drag a <code>.md</code> file into a browser window. Most browsers display the
+              file as plain text rather than rendering the Markdown. Some extensions add a rendered
+              view, but that is extra setup and another thing to keep updated.
+            </p>
+            <p>
+              <strong>Good for:</strong> reading the raw contents without installing anything.
+              <strong>Tradeoff:</strong> no rendered headings, no folder tree, and no reading
+              position to restore.
+            </p>
+
+            <h2>4. An online Markdown viewer</h2>
+            <p>
+              An online viewer lets you paste or upload a file and see the formatted result without
+              installing an app. It is convenient for a one-off document or a quick preview on a
+              machine you do not control.
+            </p>
+            <p>
+              <strong>Good for:</strong> a fast preview when you already have a network connection.
+              <strong>Tradeoff:</strong> the document leaves your computer. Avoid online viewers for
+              private repositories, internal notes, or anything confidential.
+            </p>
+
+            <h2>5. Glance</h2>
+            <p>
+              <a href="/markdown-viewer-windows/">Glance is a Markdown viewer for Windows</a> built
+              for reading rather than editing. It opens a single file or a whole folder, renders
+              GitHub-style Markdown, follows links, and keeps your place between launches. It also
+              includes search, a contents rail, light and dark themes, live reload, and session
+              restore.
+            </p>
+            <p>
+              Glance is source-available and free for noncommercial use. The current Windows build is
+              unsigned, so Windows SmartScreen may warn on first launch. It is one option among the
+              five here, and it is the most useful one when you want to read a repository of Markdown
+              files instead of one file at a time.
+            </p>
+
+            <h2>Comparison</h2>
+            <div class="table-wrap">
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Method</th>
+                    <th scope="col">Renders Markdown</th>
+                    <th scope="col">Best for</th>
+                    <th scope="col">Tradeoff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Notepad</td>
+                    <td>No</td>
+                    <td>Quick text edits</td>
+                    <td>Raw text only</td>
+                  </tr>
+                  <tr>
+                    <td>VS Code preview</td>
+                    <td>Yes</td>
+                    <td>Editing and previewing at once</td>
+                    <td>Large editor for a reading task</td>
+                  </tr>
+                  <tr>
+                    <td>Web browser</td>
+                    <td>Usually no</td>
+                    <td>Reading raw text quickly</td>
+                    <td>No rendered view or folder tree</td>
+                  </tr>
+                  <tr>
+                    <td>Online viewer</td>
+                    <td>Yes</td>
+                    <td>One-off previews</td>
+                    <td>Requires a network and sends the file out</td>
+                  </tr>
+                  <tr>
+                    <td>Glance</td>
+                    <td>Yes</td>
+                    <td>Reading files and folders on Windows</td>
+                    <td>Windows only; unsigned build</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2>Which method should you use?</h2>
+            <p>
+              Use Notepad or a browser when you only need the raw text. Use VS Code when you are
+              already editing the document. Use an online viewer for a quick preview that does not
+              contain private information. Use Glance when you want a dedicated Windows reader for
+              README files, documentation folders, and long Markdown documents.
+            </p>
+          </div>
+
+          <div class="page-cta">
+            <p>
+              <strong>Read Markdown on Windows.</strong><br />
+              Glance is free for noncommercial use.
+            </p>
+            <a class="button button-primary" href="/#download">See the download options</a>
+          </div>
+
+          <nav class="related-pages" aria-labelledby="related-pages">
+            <h2 id="related-pages">Related pages</h2>
+            <ul>
+              <li><a href="/what-is-readme-md/">What is a README.md?</a></li>
+              <li><a href="/markdown-viewer-windows/">Markdown viewer for Windows</a></li>
+              <li><a href="/changelog/">Glance changelog</a></li>
+            </ul>
+          </nav>
+        </section>
+
+        <footer class="footer">
+          <div class="footer-brand">
+            <img
+              class="footer-mark"
+              src="/assets/g-mark-32.png"
+              alt=""
+              width="16"
+              height="16"
+              loading="lazy"
+            />
+            <span class="brand-text">glance</span>
+            <span>A quiet reader for Markdown.</span>
+          </div>
+          <nav class="footer-links" aria-label="Footer">
+            <a href="/open-md-files-on-windows/">Open .md files</a>
+            <a href="/what-is-readme-md/">What is README.md?</a>
+            <a href="/markdown-viewer-windows/">Markdown viewer</a>
+            <a href="/changelog/">Changelog</a>
+            <a
+              href="https://github.com/NiranjanS8/glance-readme-viewer/blob/main/HELP.md"
+              rel="noreferrer"
+              >Help</a
+            >
+            <a
+              href="https://github.com/NiranjanS8/glance-readme-viewer/blob/main/LICENSE"
+              rel="noreferrer"
+              >License</a
+            >
+          </nav>
+          <p class="footer-copy">
+            © 2026
+            <a
+              class="footer-profile"
+              href="https://github.com/NiranjanS8"
+              rel="noreferrer"
+              aria-label="NiranjanS8 on GitHub"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                />
+              </svg>
+              <span>NiranjanS8</span>
+            </a>
+          </p>
+        </footer>
+      </main>
+    </div>
+
+    <script src="/release.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

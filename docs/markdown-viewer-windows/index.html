@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F7F6F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1B1A18" media="(prefers-color-scheme: dark)" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none';"
+    />
+    <title>Markdown Viewer for Windows - Glance</title>
+    <meta
+      name="description"
+      content="Glance is a Markdown viewer for Windows with folder mode, live reload, search, contents, themes, and session restore. Free for noncommercial use."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://glance.niranjans.tech/markdown-viewer-windows/" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/g-mark-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/g-mark-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/assets/g-mark-48.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/assets/g-mark-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/g-mark-180.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Glance" />
+    <meta property="og:url" content="https://glance.niranjans.tech/markdown-viewer-windows/" />
+    <meta property="og:title" content="Markdown Viewer for Windows - Glance" />
+    <meta
+      property="og:description"
+      content="Glance is a Markdown viewer for Windows with folder mode, live reload, search, contents, themes, and session restore. Free for noncommercial use."
+    />
+    <meta property="og:image" content="https://glance.niranjans.tech/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Glance, a Markdown and README viewer for Windows." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Markdown Viewer for Windows - Glance" />
+    <meta
+      name="twitter:description"
+      content="Glance is a Markdown viewer for Windows with folder mode, live reload, search, contents, themes, and session restore. Free for noncommercial use."
+    />
+    <meta name="twitter:image" content="https://glance.niranjans.tech/assets/og.png" />
+    <meta name="twitter:image:alt" content="Glance, a Markdown and README viewer for Windows." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://glance.niranjans.tech/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Markdown Viewer for Windows",
+            "item": "https://glance.niranjans.tech/markdown-viewer-windows/"
+          }
+        ]
+      }
+    </script>
+    <link
+      rel="preload"
+      href="/assets/fonts/source-serif-4-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/fonts/jetbrains-mono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/assets/fonts.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <div class="site-shell">
+      <aside class="rail" aria-label="Glance site">
+        <a class="brand" href="/" aria-label="Glance home">
+          <img src="/assets/g-mark-256.png" alt="" width="28" height="28" />
+          <span>glance</span>
+        </a>
+
+        <div class="rail-note">
+          <span>glance-readme-viewer</span>
+          <span class="rail-version" data-version>v0.1.3</span>
+        </div>
+
+        <nav class="file-nav" aria-label="Site pages">
+          <a class="file-link" href="/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Home</span>
+          </a>
+          <a class="file-link" href="/open-md-files-on-windows/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Open .md files</span>
+          </a>
+          <a class="file-link" href="/what-is-readme-md/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>What is README.md?</span>
+          </a>
+          <a class="file-link is-active" href="/markdown-viewer-windows/" aria-current="page">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Markdown viewer</span>
+          </a>
+          <a class="file-link" href="/changelog/">
+            <span class="file-dot" aria-hidden="true"></span>
+            <span>Changelog</span>
+          </a>
+        </nav>
+
+        <div class="rail-foot">
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            type="button"
+            aria-pressed="false"
+            aria-label="Switch to dark theme"
+          >
+            <span class="theme-icon" aria-hidden="true">◑</span>
+            <span class="theme-label">Dark</span>
+          </button>
+          <a
+            class="rail-link"
+            href="https://github.com/NiranjanS8/glance-readme-viewer"
+            rel="noreferrer"
+            >GitHub</a
+          >
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <div class="document-bar">
+          <div class="document-tab">
+            <span class="document-dot" aria-hidden="true"></span>
+            <span>markdown-viewer-windows.md</span>
+          </div>
+          <div class="document-meta">GLANCE / <span data-version>v0.1.3</span></div>
+        </div>
+
+        <section class="section page-section">
+          <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <a href="/">Home</a> /
+            <span aria-current="page">Markdown Viewer for Windows</span>
+          </nav>
+
+          <header class="page-head">
+            <h1>Markdown Viewer for Windows</h1>
+            <p class="page-intro">
+              Glance is a desktop Markdown viewer for Windows 10 and Windows 11. It opens single
+              files and whole folders, renders GitHub-style Markdown, and keeps your reading session
+              between launches. It is source-available and free for noncommercial use.
+            </p>
+          </header>
+
+          <div class="page-body">
+            <h2>What Glance does</h2>
+            <ul>
+              <li>
+                <strong>Folder mode.</strong> Open a repository and browse every Markdown file from
+                a tree. The root <code>README.md</code> opens automatically when it exists.
+              </li>
+              <li>
+                <strong>Live reload.</strong> Edit a file in your editor and Glance follows the
+                change on disk while keeping your place in the document.
+              </li>
+              <li>
+                <strong>Search and contents.</strong> Jump by heading, find text in the current
+                document, or search across the folder and the files you have open.
+              </li>
+              <li>
+                <strong>Themes.</strong> Follow the Windows theme or switch between light and dark by
+                hand. Prose, code, tables, and diagrams change with it.
+              </li>
+              <li>
+                <strong>Session restore.</strong> Glance reopens the last document and the files you
+                had open. Close any file from the sidebar when you are done with it.
+              </li>
+              <li>
+                <strong>Open with Glance.</strong> Double-click a Markdown file, use the Explorer
+                context menu, or drop a file on the app icon. It opens in the existing window.
+              </li>
+            </ul>
+            <p>
+              Glance is a reader, not an editor. Keep writing in your editor and use Glance for the
+              formatted document, the folder tree, and a calmer reading window.
+            </p>
+
+            <h2>System requirements</h2>
+            <dl class="fact-list">
+              <dt>Operating system</dt>
+              <dd>Windows 10 or Windows 11, 64-bit</dd>
+              <dt>Installer</dt>
+              <dd><span data-size>83.8 MB</span> for the current release</dd>
+              <dt>Version</dt>
+              <dd><span data-version>v0.1.3</span></dd>
+              <dt>License</dt>
+              <dd>
+                Free for noncommercial use. Glance is source-available under the
+                <a href="https://github.com/NiranjanS8/glance-readme-viewer/blob/main/LICENSE"
+                  >PolyForm Noncommercial License 1.0.0</a
+                >. Commercial use requires a separate license.
+              </dd>
+              <dt>Build</dt>
+              <dd>Unsigned. Windows SmartScreen may warn on first launch.</dd>
+            </dl>
+
+            <h2>Download Glance</h2>
+            <p>
+              The current release is <span data-version>v0.1.3</span>. The installer is
+              <span data-size>83.8 MB</span>.
+            </p>
+            <p>
+              <a
+                class="button button-primary"
+                data-download
+                href="https://github.com/NiranjanS8/glance-readme-viewer/releases/download/v0.1.3/Glance.Setup.0.1.3.exe"
+                >Download for Windows</a
+              >
+            </p>
+            <p>
+              You can also see the release details on the
+              <a href="/#download">homepage download section</a>.
+            </p>
+
+            <p class="download-note">
+              Windows may show a SmartScreen warning because this build is unsigned. Choose
+              <strong>More info</strong> → <strong>Run anyway</strong> if you trust the source.
+            </p>
+
+            <div class="checksum page-checksum">
+              <span class="checksum-label">SHA-256</span>
+              <code
+                id="checksum"
+                data-checksum="52C0BE36B17CDDB21C76C1B60CCA5CC5731154E5D167626DD6D1A49812551945"
+                >52C0BE36B17CDDB21C76C1B60CCA5CC5731154E5D167626DD6D1A49812551945</code
+              >
+              <button class="copy-button" id="copyChecksum" type="button">Copy</button>
+            </div>
+
+            <h2>Frequently asked questions</h2>
+            <div class="faq">
+              <div class="faq-item">
+                <h3>Is Glance free?</h3>
+                <p>
+                  Glance is free for noncommercial use. Commercial use requires a separate license.
+                  The source is available under the PolyForm Noncommercial License 1.0.0.
+                </p>
+              </div>
+              <div class="faq-item">
+                <h3>Does Glance work on macOS or Linux?</h3>
+                <p>No. Glance is a Windows desktop app for Windows 10 and Windows 11.</p>
+              </div>
+              <div class="faq-item">
+                <h3>Can Glance open a whole folder?</h3>
+                <p>
+                  Yes. Folder mode shows the Markdown files in a tree and opens the root README.md
+                  automatically when it exists.
+                </p>
+              </div>
+              <div class="faq-item">
+                <h3>Does Glance render GitHub-style Markdown?</h3>
+                <p>
+                  Glance renders GitHub-style Markdown, including tables, task lists, code blocks,
+                  links, and alerts. It also supports Mermaid diagrams and KaTeX math.
+                </p>
+              </div>
+              <div class="faq-item">
+                <h3>Is Glance source-available?</h3>
+                <p>
+                  Yes. The source is available under the PolyForm Noncommercial License 1.0.0.
+                  Commercial use requires a separate license.
+                </p>
+              </div>
+              <div class="faq-item">
+                <h3>Why does Windows show a SmartScreen warning?</h3>
+                <p>
+                  The current build is unsigned. Choose More info and then Run anyway if you trust
+                  the source. The SHA-256 checksum above can help you verify the installer.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="page-cta">
+            <p>
+              <strong>Read Markdown files and folders on Windows.</strong><br />
+              Glance is free for noncommercial use.
+            </p>
+            <a class="button button-primary" href="/#download">See the download options</a>
+          </div>
+
+          <nav class="related-pages" aria-labelledby="related-pages">
+            <h2 id="related-pages">Related pages</h2>
+            <ul>
+              <li><a href="/open-md-files-on-windows/">How to open a .md file on Windows</a></li>
+              <li><a href="/what-is-readme-md/">What is a README.md?</a></li>
+              <li><a href="/changelog/">Glance changelog</a></li>
+            </ul>
+          </nav>
+        </section>
+
+        <footer class="footer">
+          <div class="footer-brand">
+            <img
+              class="footer-mark"
+              src="/assets/g-mark-32.png"
+              alt=""
+              width="16"
+              height="16"
+              loading="lazy"
+            />
+            <span class="brand-text">glance</span>
+            <span>A quiet reader for Markdown.</span>
+          </div>
+          <nav class="footer-links" aria-label="Footer">
+            <a href="/open-md-files-on-windows/">Open .md files</a>
+            <a href="/what-is-readme-md/">What is README.md?</a>
+            <a href="/markdown-viewer-windows/">Markdown viewer</a>
+            <a href="/changelog/">Changelog</a>
+            <a
+              href="https://github.com/NiranjanS8/glance-readme-viewer/blob/main/HELP.md"
+              rel="noreferrer"
+              >Help</a
+            >
+            <a
+              href="https://github.com/NiranjanS8/glance-readme-viewer/blob/main/LICENSE"
+              rel="noreferrer"
+              >License</a
+            >
+          </nav>
+          <p class="footer-copy">
+            © 2026
+            <a
+              class="footer-profile"
+              href="https://github.com/NiranjanS8"
+              rel="noreferrer"
+              aria-label="NiranjanS8 on GitHub"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                />
+              </svg>
+              <span>NiranjanS8</span>
+            </a>
+          </p>
+        </footer>
+      </main>
+    </div>
+
+    <script src="/release.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
