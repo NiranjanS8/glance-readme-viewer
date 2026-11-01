@@ -84,6 +84,14 @@ async function drainPendingOpenPaths() {
   }
 }
 
+// A launch can arrive while the first window is still being created, so both
+// the startup path and `second-instance` go through here: the app is a single
+// window, and a second one would never receive the opened document.
+function ensureWindow() {
+  if (mainWindow || BrowserWindow.getAllWindows().length > 0) return;
+  createWindow();
+}
+
 function createWindow() {
   rendererReady = false;
   mainWindow = new BrowserWindow({
@@ -102,12 +110,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+  const createdWindow = mainWindow;
   mainWindow.on('closed', () => {
     rendererReady = false;
     fileWatcher.stop();
     treeWatcher.stop();
     cancelActiveSearch();
-    mainWindow = null;
+    if (mainWindow === createdWindow) mainWindow = null;
   });
 
   // A reload starts a fresh renderer; hold external opens until it has loaded.
@@ -1015,7 +1024,7 @@ if (!hasSingleInstanceLock) {
     for (const candidate of commandLinePaths(argv)) {
       queueOpenPath(candidate);
     }
-    if (!mainWindow && app.isReady()) createWindow();
+    if (app.isReady()) ensureWindow();
   });
 
   // macOS sends Finder opens (Open With, Dock drops) through this event rather
@@ -1029,10 +1038,10 @@ if (!hasSingleInstanceLock) {
     await loadSettings();
     registerFileProtocol();
     buildMenu();
-    createWindow();
+    ensureWindow();
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      ensureWindow();
     });
   });
 
