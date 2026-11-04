@@ -5,7 +5,7 @@ const chokidar = require('chokidar');
 const fs = require('fs/promises');
 const path = require('path');
 
-const MARKDOWN_EXTS = new Set(['.md', '.markdown']);
+const MARKDOWN_EXTS = new Set(['.md', '.markdown', '.mdown', '.txt']);
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build']);
 
 // Caps keep a runaway folder from turning the scan into a stall. The scan is
@@ -26,15 +26,18 @@ function toPosix(relative) {
 // letter or directory casing that differs from the one the folder was opened
 // with.
 function isInside(root, candidate) {
+  // A root that is already a drive or filesystem root ("C:\", "/") ends with
+  // the separator; appending another one would never match its children.
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
   if (process.platform === 'win32') {
     const normalizedRoot = root.toLowerCase();
     const normalizedCandidate = candidate.toLowerCase();
     return (
       normalizedCandidate === normalizedRoot ||
-      normalizedCandidate.startsWith(normalizedRoot + path.sep)
+      normalizedCandidate.startsWith(prefix.toLowerCase())
     );
   }
-  return candidate === root || candidate.startsWith(root + path.sep);
+  return candidate === root || candidate.startsWith(prefix);
 }
 
 // The single guard for local paths. Resolve against the root, refuse anything

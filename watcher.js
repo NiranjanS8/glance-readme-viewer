@@ -18,12 +18,12 @@ function createFileWatcher({ onChange, onMissing }) {
   let changeTimer = null;
   let missingTimer = null;
 
-  // A file caught mid-save is unreadable or momentarily empty. Skipping it
-  // keeps the last good render on screen instead of flashing a blank page.
+  // A file caught mid-save is unreadable. Skipping it keeps the last good
+  // render on screen; the next write event publishes again. A settled empty
+  // file is different: it is a real document state and must render as blank.
   async function readContent(filePath) {
     try {
-      const content = await fs.readFile(filePath, 'utf8');
-      return content.length > 0 ? content : null;
+      return await fs.readFile(filePath, 'utf8');
     } catch {
       return null;
     }

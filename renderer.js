@@ -698,7 +698,8 @@
   function imageUrl(source) {
     if (!source || source.startsWith('//')) return null;
     if (/^[a-z][a-z0-9+.-]*:/i.test(source)) return null;
-    const trimmed = source.replace(/\\/g, '/');
+    const trimmed = source.replace(/\\/g, '/').split(/[?#]/)[0];
+    if (!trimmed) return null;
     if (trimmed.startsWith('/')) return IMAGE_PREFIX + encodeSegments(trimmed.slice(1));
     const relativePath = current ? current.relativePath : '';
     const directory = relativePath.includes('/')
@@ -1133,7 +1134,11 @@
 
   async function openEntry(entry) {
     const opened = await window.api.readFile(entry.filePath);
-    if (opened) await navigateTo(opened);
+    if (!opened) {
+      setLinkNotice(`Could not open: ${entry.name || basename(entry.filePath)}`);
+      return;
+    }
+    await navigateTo(opened);
   }
 
   async function openTreeFile(relativePath) {
@@ -1271,9 +1276,11 @@
 
     const rendered = await renderMarkdown(content);
     if (!rendered) return;
-    buildToc();
+    // Unhide before building the TOC: headings inside a hidden body would all
+    // be filtered out as "not visible".
     emptyState.hidden = true;
     markdownBody.hidden = false;
+    buildToc();
     setStaleNotice(false);
     setLinkNotice(null);
     if (mode === 'folder' && relativePath) expandAncestors(relativePath);
@@ -1339,7 +1346,11 @@
     historyIndex = -1;
     syncHistoryMenu();
     // A startup restore carries the previous session alongside the folder.
-    for (const entry of payload.session || []) {
+    // rememberSessionEntry unshifts, so walk backwards to keep the saved order
+    // (newest first) instead of reversing it.
+    const restoredSession = payload.session || [];
+    for (let index = restoredSession.length - 1; index >= 0; index -= 1) {
+      const entry = restoredSession[index];
       if (entry && typeof entry.filePath === 'string') {
         rememberSessionEntry(entry.filePath, entry.name || basename(entry.filePath));
       }
@@ -1591,9 +1602,10 @@
         if (folder.truncated) {
           const note = document.createElement('li');
           note.className = 'file-list-empty tree-note';
-          note.textContent = folder.limit
-            ? `first ${folder.limit} files shown`
-            : 'file list truncated';
+          note.textContent =
+            folder.limit && folder.files.length >= folder.limit
+              ? `first ${folder.limit} files shown`
+              : 'file list truncated';
           fileList.appendChild(note);
         }
         const activeRow = rows.find((row) => row.classList.contains('active'));
@@ -1603,9 +1615,11 @@
       showSidebarEmpty('nothing open yet');
     } else {
       fileListEmpty.hidden = true;
-      sessionFiles.forEach((entry) => {
+      const rows = sessionFiles.map((entry) => {
         const li = document.createElement('li');
         li.dataset.path = entry.filePath;
+        li.dataset.type = 'file';
+        li.tabIndex = -1;
         li.className = 'file-item' + (entry.filePath === activePath ? ' active' : '');
         const dot = document.createElement('span');
         dot.className = 'file-dot';
@@ -1617,12 +1631,15 @@
         li.append(dot, name, createFileCloseButton(entry));
         li.addEventListener('click', () => openEntry(entry));
         fileList.appendChild(li);
+        return li;
       });
+      const activeRow = rows.find((row) => row.classList.contains('active'));
+      (activeRow || rows[0]).tabIndex = 0;
     }
 
     fileList.scrollTop = previousScroll;
     const focusTarget = focusPath || previousFocus;
-    if (focusTarget && folder) {
+    if (focusTarget) {
       const row = treeRows().find((candidate) => candidate.dataset.path === focusTarget);
       if (row) focusTreeRow(row);
     }
@@ -1635,9 +1652,9 @@
     if (entry) openEntry(entry);
   }
 
-  // Up/down walk the visible rows, left/right collapse and expand, Enter opens.
+  // Up/down walk the visible rows, left/right collapse and expand the tree,
+  // Enter opens. The opened-files list reuses the walk without the tree keys.
   fileList.addEventListener('keydown', (event) => {
-    if (!folder) return;
     const rows = treeRows();
     if (rows.length === 0) return;
     const index = rows.indexOf(document.activeElement);
@@ -1647,10 +1664,27 @@
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       focusTreeRow(rows[Math.min(rows.length - 1, index + 1)]);
-    } else if (event.key === 'ArrowUp') {
+      return;
+    }
+    if (event.key === 'ArrowUp') {
       event.preventDefault();
       focusTreeRow(rows[Math.max(0, index - 1)]);
-    } else if (event.key === 'ArrowRight') {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (row.dataset.type === 'dir') {
+        toggleFolder(row.dataset.path);
+      } else if (folder) {
+        openTreeFile(row.dataset.path);
+      } else {
+        const entry = sessionFiles.find((candidate) => candidate.filePath === row.dataset.path);
+        if (entry) openEntry(entry);
+      }
+      return;
+    }
+    if (!folder) return;
+    if (event.key === 'ArrowRight') {
       event.preventDefault();
       if (row.dataset.type !== 'dir') return;
       if (!treeExpanded.has(row.dataset.path)) {
@@ -1674,10 +1708,6 @@
           return;
         }
       }
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      if (row.dataset.type === 'dir') toggleFolder(row.dataset.path);
-      else openTreeFile(row.dataset.path);
     }
   });
 
@@ -2094,7 +2124,9 @@
     tocEntries = new Map();
     tocList.textContent = '';
     tocHeadings = Array.from(markdownBody.querySelectorAll(TOC_LEVELS)).filter(
-      (heading) => heading.id && !heading.closest('.footnotes, .mermaid-block')
+      (heading) =>
+        heading.id &&
+        !heading.closest('details:not([open]), [hidden], .footnotes, .mermaid-block')
     );
     tocEndBlock = markdownBody.lastElementChild;
     syncTocVisibility();
@@ -2256,6 +2288,11 @@
     const filePath = window.api.getPathForFile(files[0]);
     if (!filePath) return;
     // A dropped folder takes over the tree; a dropped file opens one document.
-    await window.api.openDroppedPath(filePath);
+    const result = await window.api.openDroppedPath(filePath);
+    if (result && result.status !== 'ok') {
+      setLinkNotice(linkNoticeText(result));
+    } else {
+      setLinkNotice(null);
+    }
   });
 })();

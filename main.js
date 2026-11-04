@@ -77,7 +77,11 @@ async function drainPendingOpenPaths() {
   try {
     while (pendingOpenPaths.length > 0) {
       const candidate = pendingOpenPaths.shift();
-      await openExternalPath(candidate);
+      try {
+        await openExternalPath(candidate);
+      } catch {
+        // one bad path must not strand the rest of the queue
+      }
     }
   } finally {
     drainingOpenPaths = false;
@@ -213,13 +217,22 @@ async function loadSettings() {
   };
 }
 
-async function saveSettings() {
-  try {
-    await fs.mkdir(path.dirname(settingsPath()), { recursive: true });
-    await fs.writeFile(settingsPath(), JSON.stringify(settings, null, 2) + '\n');
-  } catch {
-    // preferences are best-effort; the app works without them
-  }
+// Saves are serialized: opening a file and saving the session both fire in the
+// same tick, and overlapping writes could leave whichever finished last.
+let settingsWrite = Promise.resolve();
+
+function saveSettings() {
+  const snapshot = JSON.stringify(settings, null, 2) + '\n';
+  settingsWrite = settingsWrite
+    .catch(() => {})
+    .then(async () => {
+      await fs.mkdir(path.dirname(settingsPath()), { recursive: true });
+      await fs.writeFile(settingsPath(), snapshot);
+    })
+    .catch(() => {
+      // preferences are best-effort; the app works without them
+    });
+  return settingsWrite;
 }
 
 // Off means no watcher runs at all, for this file and the next one opened.
@@ -331,6 +344,8 @@ async function restoredSessionEntries(activeFilePath) {
     if (resolved.status !== 'ok') continue;
     if (resolved.filePath === activeFilePath || seen.has(resolved.filePath)) continue;
     seen.add(resolved.filePath);
+    // Restored rows are searchable before they are opened for the first time.
+    openedPaths.add(resolved.filePath);
     entries.push({ filePath: resolved.filePath, name: path.basename(resolved.filePath) });
   }
   return entries;
@@ -410,7 +425,9 @@ async function openExternalPath(candidate) {
 }
 
 function readmeAtRoot(files) {
-  return files.find((relative) => !relative.includes('/') && /^readme\.md$/i.test(relative));
+  return files.find(
+    (relative) => !relative.includes('/') && /^readme\.(md|markdown|mdown)$/i.test(relative)
+  );
 }
 
 // Opens a folder: scan it, make its real path the allowed root, watch it and
@@ -502,12 +519,15 @@ async function openFolderFile(relative) {
 // A file inside the saved folder reopens in folder mode; any other file opens
 // on its own. If that file is gone, fall back to the folder and its README.
 async function restoreLastView() {
-  if (!settings.reopenLastFolder) return;
+  // The file comes back even when folder restore is switched off; the setting
+  // only decides whether its folder (and the tree) is reopened around it.
   if (settings.lastFile) {
     const resolved = await resolveFile(settings.lastFile);
     if (resolved.status === 'ok') {
       const savedFolder =
-        settings.lastFolder && (await fs.realpath(settings.lastFolder).catch(() => null));
+        settings.reopenLastFolder && settings.lastFolder
+          ? await fs.realpath(settings.lastFolder).catch(() => null)
+          : null;
       if (savedFolder && isInside(savedFolder, resolved.filePath)) {
         const opened = await openFolder(savedFolder, resolved.filePath);
         if (opened) {
@@ -524,7 +544,7 @@ async function restoreLastView() {
       }
     }
   }
-  if (!settings.lastFolder) return;
+  if (!settings.reopenLastFolder || !settings.lastFolder) return;
   const opened = await openFolder(settings.lastFolder);
   if (opened) {
     opened.session = await restoredSessionEntries(opened.document ? opened.document.filePath : null);
@@ -687,8 +707,11 @@ async function runOpenedSearch({ query, searchId, token, sender, paths }) {
 function splitHref(href) {
   const raw = String(href || '');
   const hashIndex = raw.indexOf('#');
-  const pathPart = hashIndex === -1 ? raw : raw.slice(0, hashIndex);
+  const hashless = hashIndex === -1 ? raw : raw.slice(0, hashIndex);
   const anchor = hashIndex === -1 ? null : raw.slice(hashIndex + 1);
+  // GitHub-style links carry a query ("?plain=1"); it is not part of the path.
+  const queryIndex = hashless.indexOf('?');
+  const pathPart = queryIndex === -1 ? hashless : hashless.slice(0, queryIndex);
   let decoded = pathPart;
   try {
     decoded = decodeURIComponent(pathPart);
