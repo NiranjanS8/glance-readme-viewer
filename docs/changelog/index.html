@@ -13,7 +13,7 @@
     <title>Glance Changelog</title>
     <meta
       name="description"
-      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.3, including Open with Glance and session restore."
+      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.4, including folder and session fixes."
     />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://glance.niranjans.tech/changelog/" />
@@ -30,7 +30,7 @@
     <meta property="og:title" content="Glance Changelog" />
     <meta
       property="og:description"
-      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.3, including Open with Glance and session restore."
+      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.4, including folder and session fixes."
     />
     <meta property="og:image" content="https://glance.niranjans.tech/assets/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -40,7 +40,7 @@
     <meta name="twitter:title" content="Glance Changelog" />
     <meta
       name="twitter:description"
-      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.3, including Open with Glance and session restore."
+      content="Release notes for Glance, a Markdown viewer for Windows. See what changed in v0.1.4, including folder and session fixes."
     />
     <meta name="twitter:image" content="https://glance.niranjans.tech/assets/og.png" />
     <meta name="twitter:image:alt" content="Glance, a Markdown and README viewer for Windows." />
@@ -94,7 +94,7 @@
 
         <div class="rail-note">
           <span>glance-readme-viewer</span>
-          <span class="rail-version" data-version>v0.1.3</span>
+          <span class="rail-version" data-version>v0.1.4</span>
         </div>
 
         <nav class="file-nav" aria-label="Site pages">
@@ -146,7 +146,7 @@
             <span class="document-dot" aria-hidden="true"></span>
             <span>changelog.md</span>
           </div>
-          <div class="document-meta">GLANCE / <span data-version>v0.1.3</span></div>
+          <div class="document-meta">GLANCE / <span data-version>v0.1.4</span></div>
         </div>
 
         <section class="section page-section">
@@ -157,13 +157,72 @@
           <header class="page-head">
             <h1>Changelog</h1>
             <p class="page-intro">
-              Release notes for Glance. The latest release is v0.1.3. For the full history and
+              Release notes for Glance. The latest release is v0.1.4. For the full history and
               installer assets, see the
               <a href="https://github.com/NiranjanS8/glance-readme-viewer/releases">GitHub releases page</a>.
             </p>
           </header>
 
           <div class="page-body">
+            <article class="release-entry">
+              <h2>v0.1.4</h2>
+              <p class="release-meta">
+                Released <time datetime="2026-11-04">November 4, 2026</time>
+              </p>
+              <p>
+                This release fixes folder handling, session restore, and live-reload edge cases
+                reported after 0.1.3.
+              </p>
+
+              <h3>Fixed</h3>
+              <ul>
+                <li>Opening a folder at a drive root no longer rejects every file in it.</li>
+                <li>
+                  Files restored from the previous session are searchable before they are opened.
+                </li>
+                <li>
+                  <code>.mdown</code> and <code>.txt</code> files now appear in the folder tree and
+                  search results.
+                </li>
+                <li>
+                  Failed drops and unavailable session entries show a notice instead of doing
+                  nothing.
+                </li>
+                <li>Emptying a file now renders the blank document on live reload.</li>
+                <li>Restored folder sessions keep their original order.</li>
+                <li>
+                  The last document restores even when "Reopen Last Folder" is turned off.
+                </li>
+                <li>The opened-files list is keyboard navigable.</li>
+                <li>
+                  Links and images with query strings such as <code>?plain=1</code> resolve
+                  correctly.
+                </li>
+                <li>
+                  The table of contents skips headings inside closed details or hidden blocks.
+                </li>
+              </ul>
+
+              <h3>Installer</h3>
+              <p>Windows x64 installer: <code>Glance.Setup.0.1.4.exe</code></p>
+              <p>
+                SHA-256:
+                <code>2F805E7EFA8A3C1676E5A497AC10601722D6B8422AFED33176A65465544FB317</code>
+              </p>
+              <p>Size: 83,820,888 bytes.</p>
+              <p>
+                The build is unsigned, so Windows SmartScreen may warn on first run. You can verify
+                the installer with the SHA-256 value above.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/NiranjanS8/glance-readme-viewer/releases/tag/v0.1.4"
+                  >Read the v0.1.4 release on GitHub</a
+                >
+                or <a href="/#download">download the current Windows installer</a>.
+              </p>
+            </article>
+
             <article class="release-entry">
               <h2>v0.1.3</h2>
               <p class="release-meta">

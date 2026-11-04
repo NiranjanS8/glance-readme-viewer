@@ -5,14 +5,14 @@
   const REPO = 'NiranjanS8/glance-readme-viewer';
   const RELEASE = window.GLANCE_RELEASE || {};
   const FALLBACK_DOWNLOAD = {
-    version: RELEASE.version || 'v0.1.3',
+    version: RELEASE.version || 'v0.1.4',
     url:
       RELEASE.installerUrl ||
-      'https://github.com/NiranjanS8/glance-readme-viewer/releases/download/v0.1.3/Glance.Setup.0.1.3.exe',
-    size: RELEASE.size || 83820088,
+      'https://github.com/NiranjanS8/glance-readme-viewer/releases/download/v0.1.4/Glance.Setup.0.1.4.exe',
+    size: RELEASE.size || 83820888,
     checksum:
       RELEASE.checksum ||
-      '52C0BE36B17CDDB21C76C1B60CCA5CC5731154E5D167626DD6D1A49812551945',
+      '2F805E7EFA8A3C1676E5A497AC10601722D6B8422AFED33176A65465544FB317',
   };
 
   const root = document.documentElement;
